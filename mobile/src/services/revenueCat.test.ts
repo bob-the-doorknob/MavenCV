@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { hasProEntitlement, type EntitlementInfoSource } from './revenueCat';
+import { hasProEntitlement, type EntitlementInfoSource } from './entitlements';
 
 describe('hasProEntitlement', () => {
   it('returns true when pro is active', () => {

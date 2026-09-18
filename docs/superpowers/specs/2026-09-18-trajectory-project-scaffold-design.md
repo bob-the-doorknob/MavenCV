@@ -28,7 +28,8 @@ The mobile workspace will contain the file layout required by `SPECS.md`:
 - `src/types/index.ts` for shared domain contracts.
 - `src/theme/tokens.ts` for centralized visual constants.
 - `src/store/useAppStore.ts` for a typed Zustand store persisted through
-  AsyncStorage.
+  AsyncStorage. The state shape stores a target-role collection plus an active
+  target-role ID so that the later Pro feature does not require a redesign.
 - `src/services/api.ts` for the backend HTTP boundary.
 - `src/services/revenueCat.ts` for RevenueCat configuration and the `pro`
   entitlement check.
@@ -39,7 +40,14 @@ The mobile workspace will contain the file layout required by `SPECS.md`:
 
 The scaffold will include Expo, React Native, Zustand, AsyncStorage, and
 RevenueCat dependencies. It will not call Gemini, make checklist-time network
-requests, or include web APIs or DOM elements.
+requests, or include web APIs or DOM elements. RevenueCat will remain compatible
+with its Expo Go Preview API Mode; real purchase testing in a development build
+is deferred.
+
+A target role consists of a role title and an optional employer. Roadmap tasks
+carry optional student notes and a completion timestamp. CV entries are modeled
+as separate artifacts linked to their source task IDs; generation remains
+deferred.
 
 ## Backend Workspace
 
@@ -47,7 +55,8 @@ The backend workspace will contain:
 
 - `src/index.ts` for the Express application and `/health` route.
 - `src/data/targets.ts` for typed target-role seed definitions.
-- `src/routes/ai.ts` for the future AI HTTP boundary.
+- `src/routes/ai.ts` for typed `/api/roadmap` and `/api/cv-bullet` boundaries
+  that return HTTP 501 until their behavior is implemented.
 - `src/services/gemini.ts` for server-only Gemini configuration.
 
 The Gemini key will be read only from the backend process environment. The AI
@@ -83,6 +92,10 @@ the scaffold:
    imports, DOM APIs, and inline React Native styles.
 
 No full Expo bundle or native build will be run during this phase.
+
+Readiness is calculated as completed task weight divided by total available
+task weight, multiplied by 100 and constrained to an integer from zero through
+100. An empty roadmap scores zero.
 
 ## Deferred Work
 
