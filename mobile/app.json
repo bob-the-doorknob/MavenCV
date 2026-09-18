@@ -1,0 +1,17 @@
+{
+  "expo": {
+    "name": "Trajectory",
+    "slug": "trajectory",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.trajectory.app"
+    },
+    "android": {
+      "package": "com.trajectory.app",
+      "predictiveBackGestureEnabled": false
+    }
+  }
+}
