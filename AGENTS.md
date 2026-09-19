@@ -1,6 +1,6 @@
 # AGENTS.md — CV Companion (Trajectory)
 
-This repository contains the source code for **Trajectory**, a mobile app built for the Shipaton 2026 Next Gen Award. It guides university students from "unprepared" to "interview-ready" through a live roadmap, math-driven readiness scoring, and automated CV bullet point generation upon task completion.
+This repository contains the source code for **Trajectory**, a mobile app built for the Trajectory 2026 Next Gen Award. It guides university students from "unprepared" to "interview-ready" through a live roadmap, math-driven readiness scoring, and automated CV bullet point generation upon task completion.
 
 ---
 

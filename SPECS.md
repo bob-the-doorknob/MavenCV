@@ -1,6 +1,6 @@
 # SPECS.md — Trajectory (CV Companion)
 
-> **Event:** Shipaton 2026 — Next Gen Award (Student-Only Track)  
+> **Event:** Trajectory 2026 — Next Gen Award (Student-Only Track)
 > **Deadline:** 10 Days from kick-off  
 > **Target OS:** iOS & Android (Expo / React Native Managed Workflow)  
 > **Monetization Requirement:** RevenueCat SDK (`react-native-purchases`)  
@@ -18,7 +18,7 @@ Students aiming for competitive internships (e.g., Jane Street, Google, McKinsey
 2. **Gap Analysis:** The backend prompts Gemini with verified industry requirements to generate 5–7 measurable, verifiable checklist items.
 3. **Daily Companion (15-second check-in):** A persistent, offline living checklist tracks tasks (`Not Started` -> `In Progress` -> `Done`).
 4. **Mathematical Readiness Score:** Real-time score calculated via deterministic arithmetic based on task weights (not AI hallucinations).
-5. **Automated CV Extraction:** Marking a task `Done` prompts Gemini to compile the milestone and user notes into a single, high-impact resume bullet formatted with the Google XYZ formula: *"Accomplished [X], measured by [Y], by doing [Z]"*.
+5. **Automated CV Extraction:** The backend uses the candidate's task, notes, explicit target role, and optional industry to produce one cross-industry resume bullet using Google's XYZ formula. It never invents evidence; missing metrics use `[X]` with a follow-up suggestion.
 6. **Monetization (RevenueCat):** Trajectory Pro subscription ($4.99/mo) unlocks multiple concurrent target roles and unlimited CV line exports.
 
 ---

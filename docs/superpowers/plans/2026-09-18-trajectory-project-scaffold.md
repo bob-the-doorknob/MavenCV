@@ -26,7 +26,7 @@
 ### Task 1: Root workspace conversion
 
 **Files:**
-- Delete: `pyproject.toml`, `requirements.txt`, `requirements-dev.txt`, `src/sheepathon/**`, `tests/**`
+- Delete: `pyproject.toml`, `requirements.txt`, `requirements-dev.txt`, `src/trajectory/**`, `tests/**`
 - Create: `package.json`
 - Modify: `.gitignore`, `.env.example`, `README.md`
 
