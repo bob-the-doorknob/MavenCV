@@ -1,6 +1,6 @@
 # SPECS.md — Trajectory (CV Companion)
 
-> **Event:** Shipaton 2026 — Next Gen Award (Student-Only Track)  
+> **Event:** Trajectory 2026 — Next Gen Award (Student-Only Track)
 > **Deadline:** 10 Days from kick-off  
 > **Target OS:** iOS & Android (Expo / React Native Managed Workflow)  
 > **Monetization Requirement:** RevenueCat SDK (`react-native-purchases`)  
