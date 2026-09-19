@@ -130,6 +130,30 @@ describe('Trajectory backend', () => {
     expect(callCount).toBe(0);
   });
 
+  it('returns the API error envelope for malformed JSON', async () => {
+    let callCount = 0;
+    const response = await request(
+      createApp({
+        generateCvBullet: async () => {
+          callCount += 1;
+          return { bullet: 'Implemented an unreachable result.' };
+        },
+      }),
+    )
+      .post('/api/cv-bullet')
+      .set('Content-Type', 'application/json')
+      .send('{"taskTitle":');
+
+    expect(response.status).toBe(400);
+    expect(response.body).toEqual({
+      error: {
+        code: 'INVALID_JSON',
+        message: 'Request body must contain valid JSON.',
+      },
+    });
+    expect(callCount).toBe(0);
+  });
+
   it('maps invalid Gemini output to a safe gateway error', async () => {
     const response = await request(
       createApp({

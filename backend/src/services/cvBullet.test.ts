@@ -229,6 +229,29 @@ describe('generateCvBullet', () => {
     });
   });
 
+  it('maps provider failures to a safe generation error', async () => {
+    const generator: GeminiContentGenerator = {
+      generateContent: async () => {
+        throw new Error('provider credential or network detail');
+      },
+    };
+
+    await expect(generateCvBullet(validInput, generator)).rejects.toEqual(
+      new CvBulletGenerationError('Gemini request failed'),
+    );
+  });
+
+  it.each([
+    'Analyzed financial statements to support a documented valuation review.',
+    'Conducted patient assessments by following established clinical protocols.',
+    'Maintained electrical systems by completing scheduled safety inspections.',
+    'Facilitated family conferences to coordinate individualized student support.',
+  ])('accepts a cross-industry action verb: %s', async (bullet) => {
+    await expect(
+      generateCvBullet(validInput, createGenerator(JSON.stringify({ bullet }))),
+    ).resolves.toEqual({ bullet });
+  });
+
   it.each([
     ['missing response text', undefined, 'Gemini returned invalid CV bullet JSON'],
     ['malformed JSON', 'not-json', 'Gemini returned invalid CV bullet JSON'],
