@@ -10,6 +10,7 @@
     "node": ">=22.13.0"
   },
   "scripts": {
+    "check:backend": "npm run typecheck --workspace @trajectory/backend && npm test --workspace @trajectory/backend",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
     "start:mobile": "npm run start --workspace @trajectory/mobile",

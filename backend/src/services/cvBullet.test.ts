@@ -168,7 +168,7 @@ describe('buildCvBulletPrompt', () => {
     expect(prompt.endsWith('END_UNTRUSTED_CANDIDATE_DATA')).toBe(true);
   });
 
-  it('uses cross-industry guidance without tier-1 technology framing', () => {
+  it('uses cross-industry guidance without technology-company bias', () => {
     expect(CV_BULLET_SYSTEM_INSTRUCTION).toContain('Nurse');
     expect(CV_BULLET_SYSTEM_INSTRUCTION).toContain('Investment Banking Analyst');
     expect(CV_BULLET_SYSTEM_INSTRUCTION).toContain('Product Designer');
