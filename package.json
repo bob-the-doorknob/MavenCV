@@ -1,0 +1,18 @@
+{
+  "name": "trajectory",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "mobile",
+    "backend"
+  ],
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "scripts": {
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "start:mobile": "npm run start --workspace @trajectory/mobile",
+    "start:backend": "npm run dev --workspace @trajectory/backend"
+  }
+}

@@ -1,0 +1,8 @@
+https://world.openfoodfacts.org/ <---- Data on food products based on their barcode
+
+https://data.gov.sg/ <------ Singapore datalake
+
+https://www.hpb.gov.sg/healthy-living/food-and-beverage/nutri-grade/ <----- Singapore Nutrition grade
+
+
+

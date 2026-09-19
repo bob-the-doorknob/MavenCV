@@ -1,50 +1,36 @@
-# --- Python ---
-__pycache__/
-*.py[cod]
-*$py.class
-*.so
+# Dependencies
+node_modules/
 
-# Distribution / packaging
-build/
-dist/
-*.egg-info/
-*.egg
-wheels/
-pip-wheel-metadata/
-
-# Virtual environments
-.venv/
-venv/
-env/
-ENV/
-
-# Test / coverage
-.pytest_cache/
-.coverage
-.coverage.*
-htmlcov/
-.tox/
-.nox/
-coverage.xml
-
-# Type checking / linting caches
-.mypy_cache/
-.ruff_cache/
-.pytype/
-
-# Environment variables / secrets
+# Environment files and secrets
 .env
 .env.*
 !.env.example
 
-# Jupyter
-.ipynb_checkpoints/
+# Build and test output
+backend/dist/
+mobile/dist/
+coverage/
+*.tsbuildinfo
 
-# Editors / IDEs
+# Expo and generated native projects
+.expo/
+mobile/.expo/
+mobile/android/
+mobile/ios/
+
+# Previous local Python tooling
+.venv/
+.pytest_cache/
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# Editors and operating systems
 .vscode/
 .idea/
 *.swp
-
-# OS files
 .DS_Store
 Thumbs.db
+
+# Local worktrees
+.worktrees/
