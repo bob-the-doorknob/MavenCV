@@ -63,9 +63,13 @@ the frontend integration.
 
 Both `POST /api/roadmap` and `POST /api/cv-bullet` require
 `Authorization: Bearer <Firebase ID token>` from a signed-in user with a
-verified email. The mobile app must refresh the ID token and include it on each
-AI request. It should prompt sign-in again on `401`, and respect `Retry-After`
-on `429`. Both routes share 10 requests per user per 60 seconds by default.
+Firebase account. The mobile API client silently creates an anonymous account,
+stores its refresh token in AsyncStorage, refreshes the ID token, and includes
+it on each AI request. Set `EXPO_PUBLIC_FIREBASE_API_KEY` to the Firebase Web
+API key and enable the Anonymous provider in Firebase Authentication. The key is
+public configuration; keep `GEMINI_API_KEY` on the backend. Both routes share
+10 requests per user per 60 seconds by default. The app still needs UI handling
+for `401` and `429` when the generation screens are built.
 The daily checklist stays local and makes no AI requests.
 
 `POST /api/roadmap` accepts:
@@ -110,7 +114,7 @@ response preserves the original `bullet` field and may add suggestions:
 }
 ```
 
-The backend pins `gemini-3.8-flash`, treats task and note text as untrusted data,
+The backend pins `gemini-3.6-flash`, treats task and note text as untrusted data,
 and rejects invalid input or model output. Missing metrics use `[X]` with a
 suggestion instead of invented evidence.
 
@@ -134,6 +138,9 @@ Invoke-RestMethod `
 
 The live command uses Gemini quota. Keep `GEMINI_API_KEY` in `.env` or Cloud Run
 Secret Manager; never expose it through an `EXPO_PUBLIC_` variable.
+
+Run `npm run smoke:gemini` to exercise both generation services with the local
+Gemini key. It prints only pass or fail and does not require a Firebase token.
 
 Run `npm run smoke:backend` after starting the backend. It checks `/health`
 without credentials. To check the protected roadmap, set

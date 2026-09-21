@@ -3,8 +3,6 @@ export interface AuthenticatedUser { uid: string }
 export interface FirebaseTokenVerifier {
   verifyIdToken(token: string, checkRevoked: boolean): Promise<{
     uid: string;
-    email_verified?: boolean;
-    firebase?: { sign_in_provider?: string };
   }>;
 }
 
@@ -30,7 +28,7 @@ export const authenticateAuthorization = async (
   if (!token) throw new AuthenticationError('Authentication is required');
   try {
     const account = await (verifier ?? await productionVerifier()).verifyIdToken(token, true);
-    if (!account.uid || account.email_verified !== true || account.firebase?.sign_in_provider === 'anonymous') {
+    if (!account.uid) {
       throw new AuthenticationError('Authentication is required');
     }
     return { uid: account.uid };

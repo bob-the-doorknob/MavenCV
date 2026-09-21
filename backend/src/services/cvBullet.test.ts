@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import {
   CV_BULLET_SYSTEM_INSTRUCTION,
@@ -186,7 +186,7 @@ describe('generateCvBullet', () => {
     targetIndustry: 'Healthcare',
   };
 
-  it('uses Gemini 3.8 Flash and parses a structured response', async () => {
+  it('uses Gemini 3.6 Flash and parses a structured response', async () => {
     let receivedRequest: GeminiGenerateContentRequest | undefined;
     const generator: GeminiContentGenerator = {
       generateContent: async (request) => {
@@ -207,7 +207,7 @@ describe('generateCvBullet', () => {
       suggestions: ['How much did handoff time or readmissions change?'],
     });
     expect(receivedRequest).toEqual({
-      model: 'gemini-3.8-flash',
+      model: 'gemini-3.6-flash',
       contents: buildCvBulletPrompt(validInput),
       config: {
         systemInstruction: CV_BULLET_SYSTEM_INSTRUCTION,
@@ -241,11 +241,22 @@ describe('generateCvBullet', () => {
     );
   });
 
+  it('retries one invalid model response and succeeds', async () => {
+    const generateContent = vi.fn()
+      .mockResolvedValueOnce({ text: '{' })
+      .mockResolvedValueOnce({ text: JSON.stringify({ bullet: 'Deployed 1 app to production.' }) });
+    await expect(generateCvBullet(validInput, { generateContent })).resolves.toEqual({ bullet: 'Deployed 1 app to production.' });
+    expect(generateContent).toHaveBeenCalledTimes(2);
+  });
+
   it.each([
     'Analyzed financial statements to support a documented valuation review.',
     'Conducted patient assessments by following established clinical protocols.',
     'Maintained electrical systems by completing scheduled safety inspections.',
     'Facilitated family conferences to coordinate individualized student support.',
+    'Redesigned onboarding for 3 teams in the US market.',
+    'Deployed 1 app to production with documented checks.',
+    'Automated 2 reporting workflows for operations.',
   ])('accepts a cross-industry action verb: %s', async (bullet) => {
     await expect(
       generateCvBullet(validInput, createGenerator(JSON.stringify({ bullet }))),
@@ -279,8 +290,13 @@ describe('generateCvBullet', () => {
       'Gemini CV bullet must not use first-person pronouns',
     ],
     [
-      'an unsupported opening verb',
-      JSON.stringify({ bullet: 'Helped coordinate standardized discharge planning.' }),
+      'capitalized first-person wording',
+      JSON.stringify({ bullet: 'Improved the workflow We owned.' }),
+      'Gemini CV bullet must not use first-person pronouns',
+    ],
+    [
+      'an uncapitalized opening verb',
+      JSON.stringify({ bullet: 'helped coordinate standardized discharge planning.' }),
       'Gemini CV bullet must start with a supported action verb',
     ],
     [

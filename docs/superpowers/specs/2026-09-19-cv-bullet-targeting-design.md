@@ -111,7 +111,7 @@ Few-shot examples cover nursing, investment banking, product design, teaching, a
 
 ## Model Selection
 
-Use the explicit stable model ID `gemini-3.8-flash`. Do not use the moving `gemini-flash-latest` alias because an automatic model swap could change structured-output behavior without a code deployment. The model remains injectable in service tests.
+Use the explicit stable model ID `gemini-3.6-flash`. Do not use the moving `gemini-flash-latest` alias because an automatic model swap could change structured-output behavior without a code deployment. The model remains injectable in service tests.
 
 ## Output Validation
 
@@ -160,7 +160,7 @@ Backend tests cover:
 - cross-industry few-shot guidance;
 - whitespace, length, and control-character validation;
 - injection-style notes remaining inside the untrusted-data block;
-- the `gemini-3.8-flash` request payload;
+- the `gemini-3.6-flash` request payload;
 - strict parsing of `bullet` and optional `suggestions`; and
 - route success and error mappings.
 

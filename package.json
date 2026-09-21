@@ -15,6 +15,7 @@
     "test": "npm run test --workspaces --if-present",
     "start:mobile": "npm run start --workspace @trajectory/mobile",
     "start:backend": "npm run dev --workspace @trajectory/backend",
-    "smoke:backend": "powershell -NoProfile -ExecutionPolicy Bypass -File backend/scripts/smoke.ps1"
+    "smoke:backend": "powershell -NoProfile -ExecutionPolicy Bypass -File backend/scripts/smoke.ps1",
+    "smoke:gemini": "node --env-file=.env --import tsx backend/scripts/smoke-gemini.ts"
   }
 }
