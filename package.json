@@ -14,6 +14,7 @@
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
     "start:mobile": "npm run start --workspace @trajectory/mobile",
-    "start:backend": "npm run dev --workspace @trajectory/backend"
+    "start:backend": "npm run dev --workspace @trajectory/backend",
+    "smoke:backend": "powershell -NoProfile -ExecutionPolicy Bypass -File backend/scripts/smoke.ps1"
   }
 }

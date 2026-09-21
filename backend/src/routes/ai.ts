@@ -1,103 +1,81 @@
 import { Router, type Request, type Response } from 'express';
 
+import { authenticateAuthorization, AuthenticationError, type RequestAuthenticator } from '../security/auth.js';
+import { consumeAiQuota, QuotaStoreError, type AiRateLimiter } from '../security/rateLimit.js';
 import {
-  CvBulletGenerationError,
-  CvBulletValidationError,
-  generateCvBullet,
-  normalizeCvBulletInput,
-  type CvBulletInput,
-  type CvBulletResult,
+  CvBulletGenerationError, CvBulletValidationError, generateCvBullet,
+  normalizeCvBulletInput, type CvBulletInput, type CvBulletResult,
 } from '../services/cvBullet.js';
-
-interface RoadmapRequestBody {
-  experience: string;
-  targetRole: {
-    title: string;
-    employer?: string;
-  };
-}
-
-interface NotImplementedBody {
-  error: {
-    code: 'NOT_IMPLEMENTED';
-    message: string;
-  };
-}
-
-interface ApiErrorBody {
-  error: {
-    code:
-      | 'INVALID_CV_BULLET_INPUT'
-      | 'CV_BULLET_GENERATION_FAILED'
-      | 'INTERNAL_ERROR';
-    message: string;
-  };
-}
+import {
+  generateRoadmap, normalizeRoadmapInput, RoadmapGenerationError, RoadmapValidationError,
+  type RoadmapInput, type RoadmapResult,
+} from '../services/roadmap.js';
 
 type CvBulletGenerator = (input: CvBulletInput) => Promise<CvBulletResult>;
+type RoadmapGenerator = (input: RoadmapInput) => Promise<RoadmapResult>;
 
 export interface AiRouterDependencies {
   generateCvBullet?: CvBulletGenerator;
+  generateRoadmap?: RoadmapGenerator;
+  authenticate?: RequestAuthenticator;
+  consumeQuota?: AiRateLimiter;
 }
 
-const notImplemented = <TRequestBody>(
-  _request: Request<Record<string, never>, NotImplementedBody, TRequestBody>,
-  response: Response<NotImplementedBody>,
-): void => {
-  response.status(501).json({
-    error: {
-      code: 'NOT_IMPLEMENTED',
-      message: 'This AI endpoint is reserved for a later implementation phase.',
-    },
-  });
+interface ApiErrorBody { error: { code: string; message: string } }
+
+const sendError = (response: Response, status: number, code: string, message: string): void => {
+  response.status(status).json({ error: { code, message } });
+};
+
+const handleError = (error: unknown, response: Response): void => {
+  if (error instanceof AuthenticationError) {
+    sendError(response, 401, 'AUTHENTICATION_REQUIRED', 'Authentication is required.');
+  } else if (error instanceof RoadmapValidationError) {
+    sendError(response, 400, 'INVALID_ROADMAP_INPUT', error.message);
+  } else if (error instanceof CvBulletValidationError) {
+    sendError(response, 400, 'INVALID_CV_BULLET_INPUT', error.message);
+  } else if (error instanceof QuotaStoreError) {
+    sendError(response, 503, 'SERVICE_UNAVAILABLE', 'AI quota is temporarily unavailable.');
+  } else if (error instanceof RoadmapGenerationError) {
+    sendError(response, 502, 'ROADMAP_GENERATION_FAILED', 'Unable to generate a valid roadmap.');
+  } else if (error instanceof CvBulletGenerationError) {
+    sendError(response, 502, 'CV_BULLET_GENERATION_FAILED', 'Unable to generate a valid CV bullet.');
+  } else {
+    sendError(response, 500, 'INTERNAL_ERROR', 'An unexpected error occurred.');
+  }
 };
 
 export const createAiRouter = ({
-  generateCvBullet: generate = generateCvBullet,
+  generateCvBullet: generateBullet = generateCvBullet,
+  generateRoadmap: generateTasks = generateRoadmap,
+  authenticate = authenticateAuthorization,
+  consumeQuota = consumeAiQuota,
 }: AiRouterDependencies = {}): Router => {
   const router = Router();
 
-  router.post('/roadmap', notImplemented<RoadmapRequestBody>);
-  router.post(
-    '/cv-bullet',
-    async (
-      request: Request<Record<string, never>, CvBulletResult | ApiErrorBody, unknown>,
-      response: Response<CvBulletResult | ApiErrorBody>,
-    ): Promise<void> => {
-      try {
-        const input = normalizeCvBulletInput(request.body);
-        const result = await generate(input);
-        response.status(200).json(result);
-      } catch (error: unknown) {
-        if (error instanceof CvBulletValidationError) {
-          response.status(400).json({
-            error: {
-              code: 'INVALID_CV_BULLET_INPUT',
-              message: error.message,
-            },
-          });
-          return;
-        }
-
-        if (error instanceof CvBulletGenerationError) {
-          response.status(502).json({
-            error: {
-              code: 'CV_BULLET_GENERATION_FAILED',
-              message: 'Unable to generate a valid CV bullet.',
-            },
-          });
-          return;
-        }
-
-        response.status(500).json({
-          error: {
-            code: 'INTERNAL_ERROR',
-            message: 'An unexpected error occurred.',
-          },
-        });
+  const handlePost = <TInput, TResult>(
+    normalize: (value: unknown) => TInput,
+    generate: (input: TInput) => Promise<TResult>,
+  ) => async (
+    request: Request<Record<string, never>, TResult | ApiErrorBody, unknown>,
+    response: Response<TResult | ApiErrorBody>,
+  ): Promise<void> => {
+    try {
+      const user = await authenticate(request.headers.authorization);
+      const input = normalize(request.body);
+      const decision = await consumeQuota(user.uid);
+      if (!decision.allowed) {
+        response.set('Retry-After', String(decision.retryAfterSeconds ?? 1));
+        sendError(response, 429, 'RATE_LIMIT_EXCEEDED', 'AI request limit exceeded.');
+        return;
       }
-    },
-  );
+      response.status(200).json(await generate(input));
+    } catch (error: unknown) {
+      handleError(error, response);
+    }
+  };
 
+  router.post('/roadmap', handlePost(normalizeRoadmapInput, generateTasks));
+  router.post('/cv-bullet', handlePost(normalizeCvBulletInput, generateBullet));
   return router;
 };

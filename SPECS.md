@@ -4,7 +4,7 @@
 > **Deadline:** 10 Days from kick-off  
 > **Target OS:** iOS & Android (Expo / React Native Managed Workflow)  
 > **Monetization Requirement:** RevenueCat SDK (`react-native-purchases`)  
-> **AI Architecture:** Thin Cloud Run backend wrapping Gemini 1.5 Flash (Strict JSON Schema)  
+> **AI Architecture:** Thin Cloud Run backend wrapping Gemini 3.8 Flash (Strict JSON Schema)
 > **Client Storage:** Zustand + `@react-native-async-storage/async-storage` (Offline-First)
 
 ---
@@ -15,7 +15,7 @@ Students aiming for competitive internships (e.g., Jane Street, Google, McKinsey
 
 **Trajectory** is an actionable career roadmap companion:
 1. **Setup (One-time, ~2 min):** The student inputs current technical experience and selects a target role.
-2. **Gap Analysis:** The backend prompts Gemini with verified industry requirements to generate 5–7 measurable, verifiable checklist items.
+2. **Gap Analysis:** The backend uses model general knowledge and repository-authored cross-industry examples to generate 5–7 measurable, verifiable checklist items. No scraped or bundled job dataset is used.
 3. **Daily Companion (15-second check-in):** A persistent, offline living checklist tracks tasks (`Not Started` -> `In Progress` -> `Done`).
 4. **Mathematical Readiness Score:** Real-time score calculated via deterministic arithmetic based on task weights (not AI hallucinations).
 5. **Automated CV Extraction:** The backend uses the candidate's task, notes, explicit target role, and optional industry to produce one cross-industry resume bullet using Google's XYZ formula. It never invents evidence; missing metrics use `[X]` with a follow-up suggestion.
