@@ -59,6 +59,33 @@ The backend can be implemented and tested without the frontend. End-to-end
 screen behavior, saved mobile preferences, navigation, and device UX require
 the frontend integration.
 
+## Roadmap API and frontend handoff
+
+Both `POST /api/roadmap` and `POST /api/cv-bullet` require
+`Authorization: Bearer <Firebase ID token>` from a signed-in user with a
+verified email. The mobile app must refresh the ID token and include it on each
+AI request. It should prompt sign-in again on `401`, and respect `Retry-After`
+on `429`. Both routes share 10 requests per user per 60 seconds by default.
+The daily checklist stays local and makes no AI requests.
+
+`POST /api/roadmap` accepts:
+
+```json
+{
+  "experience": "Built two TypeScript APIs and used PostgreSQL in coursework.",
+  "targetRole": { "title": "Backend Engineer", "employer": "Optional employer" },
+  "targetIndustry": "Fintech"
+}
+```
+
+`employer` and `targetIndustry` are optional. A successful response has `tasks`
+with 5–7 entries, each containing a server-generated `id`, a measurable
+`title`, a positive integer `weight`, and `status: "not_started"`. Weights sum
+to 100 and the tasks map directly to the mobile `RoadmapTask` type. Invalid
+request data returns `400 INVALID_ROADMAP_INPUT`; invalid model output returns
+`502 ROADMAP_GENERATION_FAILED`. A quota store failure returns
+`503 SERVICE_UNAVAILABLE`. The API never returns raw provider errors.
+
 ## CV bullet API
 
 `POST /api/cv-bullet` accepts:
@@ -100,12 +127,18 @@ $body = @{
 Invoke-RestMethod `
   -Method Post `
   -Uri "http://localhost:8080/api/cv-bullet" `
+  -Headers @{ Authorization = "Bearer $env:TRAJECTORY_FIREBASE_ID_TOKEN" } `
   -ContentType "application/json" `
   -Body $body
 ```
 
 The live command uses Gemini quota. Keep `GEMINI_API_KEY` in `.env` or Cloud Run
 Secret Manager; never expose it through an `EXPO_PUBLIC_` variable.
+
+Run `npm run smoke:backend` after starting the backend. It checks `/health`
+without credentials. To check the protected roadmap, set
+`TRAJECTORY_FIREBASE_ID_TOKEN` in the current process environment; the script
+does not print it. Set `TRAJECTORY_API_URL` to check a deployed endpoint.
 
 ## Cloud Run
 
@@ -118,6 +151,18 @@ docker run --env-file .env -p 8080:8080 trajectory-backend
 ```
 
 Cloud Run supplies `PORT`; the server defaults to `8080` locally.
+
+Firebase Admin uses Application Default Credentials locally and on Cloud Run.
+Provision a Firebase project with email-verified sign-in and a Firestore
+database. Give the dedicated Cloud Run service account only the Firestore
+permissions needed for `_internal_ai_rate_limits`, configure Firestore TTL on
+its `expiresAt` field, and supply `GEMINI_API_KEY` from Secret Manager. Rotate
+any previously disclosed API key before public deployment. For public mobile
+traffic, use Cloud Run ingress `internal-and-cloud-load-balancing` behind an
+external Application Load Balancer with a Cloud Armor per-IP throttle. Cloud Run
+allows platform-level unauthenticated invocation because Express verifies
+Firebase ID tokens; the restricted ingress prevents direct public bypass.
+Firebase App Check is a further abuse-control step before broad launch.
 
 ## Security
 
