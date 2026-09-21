@@ -65,6 +65,9 @@ describe('roadmap generation', () => {
       model: 'gemini-3.8-flash',
       config: expect.objectContaining({ responseMimeType: 'application/json', responseJsonSchema: expect.objectContaining({ additionalProperties: false }) }),
     }));
+    const request = generateContent.mock.calls[0]?.[0];
+    expect(request.config.responseJsonSchema.properties.milestones.items.properties.verb.enum).toContain('Validate');
+    expect(request.config.systemInstruction).toContain('Build, Complete, Create');
   });
 
   it.each([
