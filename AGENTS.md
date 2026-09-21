@@ -1,6 +1,6 @@
 # AGENTS.md — CV Companion (Trajectory)
 
-This repository contains the source code for **Trajectory**, a mobile app built for the Trajectory 2026 Next Gen Award. It guides university students from "unprepared" to "interview-ready" through a live roadmap, math-driven readiness scoring, and automated CV bullet point generation upon task completion.
+This repository contains the source code for **Trajectory**, a mobile app built for the RevenueCat Shipaton 2026 Next Gen Award. It guides university students from "unprepared" to "interview-ready" through a live roadmap, math-driven readiness scoring, and automated CV bullet point generation upon task completion.
 
 ---
 
@@ -16,13 +16,13 @@ This repository contains the source code for **Trajectory**, a mobile app built 
 - Use **TypeScript** with strict types. No `any`.
 - Use **Expo (Managed Workflow)** and React Native core components.
 - Use **Zustand** for global client state combined with **AsyncStorage** for persistent local storage.
-- Calculate the **Readiness Score purely with arithmetic** (Weighted Completed Tasks / Total Tasks * 100). Do NOT use AI for math.
+- Calculate the **Readiness Score purely with arithmetic** (sum of weights of done tasks / sum of weights of all tasks * 100, rounded, 0 for an empty roadmap). Do NOT use AI for math.
 - Ensure all AI-generated roadmap items follow the strict format: `[Verb] + [Measurable Quantity/Artifact] + [Topic]`.
 - Use **RevenueCat (`react-native-purchases`)** for paywall/entitlements. Guard premium features (`pro` entitlement) with client check: `customerInfo.entitlements.active['pro']`.
 - Keep diffs minimal, modular, and focused on single responsibilities.
 
 ### Don't
-- Do NOT install dependencies without approval (especially native modules that break Expo Go).
+- Do NOT install dependencies without approval. We use an Expo development build (expo-dev-client) because react-native-purchases requires native code. Do not add other native dependencies without approval. revenueCat.ts must not crash when running in Expo Go (detect with expo-constants executionEnvironment === 'storeClient' and fall back to a mock).
 - Do NOT use inline styles. Use `StyleSheet.create` or our centralized theme constants.
 - Do NOT trigger AI calls on the daily checklist screen (Screen 2). Daily interactions must be 100% offline, local, and sub-second.
 - Do NOT rebuild full project bundles to test a syntax or type change.
