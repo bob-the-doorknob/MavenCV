@@ -1,6 +1,5 @@
-import { createGeminiClient } from './gemini.js';
+import { createGeminiJsonGenerator, GEMINI_MODEL } from './gemini.js';
 
-const CV_BULLET_MODEL = 'gemini-3.8-flash';
 const MAX_TASK_TITLE_LENGTH = 200;
 const MAX_NOTES_LENGTH = 2_000;
 const MAX_TARGET_LENGTH = 80;
@@ -8,122 +7,7 @@ const MAX_BULLET_WORDS = 28;
 const MAX_SUGGESTIONS = 3;
 const MAX_SUGGESTION_LENGTH = 120;
 const CONTROL_CHARACTER_PATTERN = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/u;
-const FIRST_PERSON_PATTERN = /\b(?:I|me|my|mine|we|us|our|ours)\b/iu;
-
-const ACTION_VERBS = new Set([
-  'Achieved',
-  'Administered',
-  'Analyzed',
-  'Architected',
-  'Assessed',
-  'Audited',
-  'Built',
-  'Collaborated',
-  'Communicated',
-  'Completed',
-  'Conducted',
-  'Configured',
-  'Constructed',
-  'Consulted',
-  'Coordinated',
-  'Created',
-  'Delivered',
-  'Designed',
-  'Developed',
-  'Diagnosed',
-  'Directed',
-  'Drafted',
-  'Educated',
-  'Engineered',
-  'Established',
-  'Evaluated',
-  'Executed',
-  'Facilitated',
-  'Forecasted',
-  'Implemented',
-  'Improved',
-  'Installed',
-  'Led',
-  'Maintained',
-  'Managed',
-  'Mentored',
-  'Monitored',
-  'Negotiated',
-  'Operated',
-  'Optimized',
-  'Organized',
-  'Planned',
-  'Presented',
-  'Produced',
-  'Reduced',
-  'Repaired',
-  'Researched',
-  'Resolved',
-  'Reviewed',
-  'Sold',
-  'Spearheaded',
-  'Streamlined',
-  'Supervised',
-  'Supported',
-  'Tested',
-  'Trained',
-  'Achieve',
-  'Administer',
-  'Analyze',
-  'Architect',
-  'Assess',
-  'Audit',
-  'Build',
-  'Collaborate',
-  'Communicate',
-  'Complete',
-  'Conduct',
-  'Configure',
-  'Construct',
-  'Consult',
-  'Coordinate',
-  'Create',
-  'Deliver',
-  'Design',
-  'Develop',
-  'Diagnose',
-  'Direct',
-  'Draft',
-  'Educate',
-  'Engineer',
-  'Establish',
-  'Evaluate',
-  'Execute',
-  'Facilitate',
-  'Forecast',
-  'Implement',
-  'Improve',
-  'Install',
-  'Lead',
-  'Maintain',
-  'Manage',
-  'Mentor',
-  'Monitor',
-  'Negotiate',
-  'Operate',
-  'Optimize',
-  'Organize',
-  'Plan',
-  'Present',
-  'Produce',
-  'Reduce',
-  'Repair',
-  'Research',
-  'Resolve',
-  'Review',
-  'Sell',
-  'Spearhead',
-  'Streamline',
-  'Supervise',
-  'Support',
-  'Test',
-  'Train',
-]);
+const FIRST_PERSON_PATTERN = /\b(?:I|[Mm]e|[Mm]y|[Mm]ine|[Ww]e|[Uu]s|[Oo]ur|[Oo]urs)\b/u;
 
 export const CV_BULLET_SYSTEM_INSTRUCTION = `
 You are an expert cross-industry resume writer.
@@ -267,13 +151,12 @@ export const buildCvBulletPrompt = (input: CvBulletInput): string => {
 
 export const generateCvBullet = async (
   input: CvBulletInput,
-  generator: GeminiContentGenerator = createGeminiClient().models,
+  generator: GeminiContentGenerator = createGeminiJsonGenerator(),
 ): Promise<CvBulletResult> => {
-  let response: GeminiGenerateContentResponse;
-
-  try {
-    response = await generator.generateContent({
-      model: CV_BULLET_MODEL,
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const response = await generator.generateContent({
+      model: GEMINI_MODEL,
       contents: buildCvBulletPrompt(input),
       config: {
         systemInstruction: CV_BULLET_SYSTEM_INSTRUCTION,
@@ -292,12 +175,15 @@ export const generateCvBullet = async (
           additionalProperties: false,
         },
       },
-    });
-  } catch {
-    throw new CvBulletGenerationError('Gemini request failed');
+      });
+      return parseCvBullet(response.text);
+    } catch (error: unknown) {
+      if (attempt === 1) {
+        throw error instanceof CvBulletGenerationError ? error : new CvBulletGenerationError('Gemini request failed');
+      }
+    }
   }
-
-  return parseCvBullet(response.text);
+  throw new CvBulletGenerationError('Gemini request failed');
 };
 
 const parseCvBullet = (text: string | undefined): CvBulletResult => {
@@ -338,7 +224,7 @@ const parseCvBullet = (text: string | undefined): CvBulletResult => {
   }
 
   const openingVerb = /^[A-Za-z]+/u.exec(bullet)?.[0];
-  if (!openingVerb || !ACTION_VERBS.has(openingVerb)) {
+  if (!openingVerb || !/^[A-Z][a-z]+(?:ed|t)$/u.test(openingVerb) && !['Built', 'Led', 'Sold', 'Wrote', 'Drove', 'Made', 'Won', 'Ran'].includes(openingVerb)) {
     throw new CvBulletGenerationError(
       'Gemini CV bullet must start with a supported action verb',
     );

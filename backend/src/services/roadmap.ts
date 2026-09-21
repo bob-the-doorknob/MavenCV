@@ -1,8 +1,7 @@
 import { randomUUID } from 'node:crypto';
 
-import { createGeminiClient } from './gemini.js';
+import { createGeminiJsonGenerator, GEMINI_MODEL } from './gemini.js';
 
-const MODEL = 'gemini-3.8-flash';
 const CONTROL_CHARACTERS = /[\u0000-\u001f\u007f]/u;
 const VERB_OPTIONS = [
   'Build', 'Complete', 'Create', 'Deliver', 'Demonstrate', 'Deploy', 'Design',
@@ -139,13 +138,14 @@ const parseMilestones = (text: string | undefined): string[] => {
 
 export const generateRoadmap = async (
   input: RoadmapInput,
-  generator: RoadmapContentGenerator = createGeminiClient().models,
+  generator: RoadmapContentGenerator = createGeminiJsonGenerator(),
   createId: () => string = randomUUID,
 ): Promise<RoadmapResult> => {
-  let text: string | undefined;
-  try {
-    const response = await generator.generateContent({
-      model: MODEL,
+  let titles: string[] | undefined;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const response = await generator.generateContent({
+      model: GEMINI_MODEL,
       contents: buildRoadmapPrompt(input),
       config: {
         systemInstruction: SYSTEM_INSTRUCTION,
@@ -153,11 +153,15 @@ export const generateRoadmap = async (
         responseJsonSchema: RESPONSE_SCHEMA,
       },
     });
-    text = response.text;
-  } catch {
-    throw new RoadmapGenerationError('Gemini request failed');
+      titles = parseMilestones(response.text);
+      break;
+    } catch (error: unknown) {
+      if (attempt === 1) {
+        throw error instanceof RoadmapGenerationError ? error : new RoadmapGenerationError('Gemini request failed');
+      }
+    }
   }
-  const titles = parseMilestones(text);
+  if (!titles) throw new RoadmapGenerationError('Gemini request failed');
   const base = Math.floor(100 / titles.length);
   const remainder = 100 % titles.length;
   return {

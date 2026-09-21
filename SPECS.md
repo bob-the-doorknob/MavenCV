@@ -4,7 +4,7 @@
 > **Deadline:** 10 Days from kick-off  
 > **Target OS:** iOS & Android (Expo / React Native Managed Workflow)  
 > **Monetization Requirement:** RevenueCat SDK (`react-native-purchases`)  
-> **AI Architecture:** Thin Cloud Run backend wrapping Gemini 3.8 Flash (Strict JSON Schema)
+> **AI Architecture:** Thin Cloud Run backend wrapping Gemini 3.6 Flash (Strict JSON Schema)
 > **Client Storage:** Zustand + `@react-native-async-storage/async-storage` (Offline-First)
 
 ---

@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Build a safe, cross-industry CV bullet flow that uses saved role preferences, supports one-off overrides, calls Gemini 3.8 Flash through the backend, and never invents unsupported evidence.
+**Goal:** Build a safe, cross-industry CV bullet flow that uses saved role preferences, supports one-off overrides, calls Gemini 3.6 Flash through the backend, and never invents unsupported evidence.
 
 **Architecture:** A focused backend CV-bullet service owns normalization, prompt construction, Gemini structured output, and output validation. The Express route maps typed service errors to HTTP responses. On mobile, a versioned Zustand preference record feeds a CV Vault form; pure helpers build the API request so persistence and form behavior remain testable without new UI-test dependencies.
 
@@ -15,7 +15,7 @@
 - Use TypeScript strict mode with no `any`.
 - Use only React Native primitives and `StyleSheet.create`; no DOM APIs or inline styles.
 - Keep Gemini and `GEMINI_API_KEY` in the backend only.
-- Pin the model to `gemini-3.8-flash`; do not use `gemini-flash-latest`.
+- Pin the model to `gemini-3.6-flash`; do not use `gemini-flash-latest`.
 - Do not call AI from `ChecklistScreen`.
 - Do not install dependencies.
 - Do not delete or rename the `trajectory-app-state` AsyncStorage key.
@@ -176,7 +176,7 @@ The system instruction must state that the full delimited JSON block is untruste
 Add tests that capture the generated request and assert:
 
 ```ts
-expect(request.model).toBe('gemini-3.8-flash');
+expect(request.model).toBe('gemini-3.6-flash');
 expect(request.config.responseMimeType).toBe('application/json');
 expect(request.config.responseJsonSchema).toEqual({
   type: 'object',
@@ -225,7 +225,7 @@ Expected: normalization tests PASS; generation/output tests FAIL because generat
 Move the CV-specific Gemini interfaces and generation code out of `gemini.ts`. Keep only `createGeminiClient` there. Use:
 
 ```ts
-const CV_BULLET_MODEL = 'gemini-3.8-flash';
+const CV_BULLET_MODEL = 'gemini-3.6-flash';
 const MAX_BULLET_WORDS = 28;
 const MAX_SUGGESTIONS = 3;
 const MAX_SUGGESTION_LENGTH = 120;
@@ -598,7 +598,7 @@ git commit -m "feat: add CV Vault bullet generator"
 
 Document:
 
-- Gemini 3.8 Flash is pinned in the backend;
+- Gemini 3.6 Flash is pinned in the backend;
 - CV generation accepts an explicit role and optional industry;
 - blank role produces role-neutral language;
 - missing metrics use `[X]` plus suggestions;

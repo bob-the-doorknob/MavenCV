@@ -62,7 +62,7 @@ describe('roadmap generation', () => {
     expect(result.tasks[0]).toEqual({ id: 'id-1', title: 'Build 3 REST endpoints transaction processing', weight: 17, status: 'not_started' });
     expect(result.tasks.every(({ status }) => status === 'not_started')).toBe(true);
     expect(generateContent).toHaveBeenCalledWith(expect.objectContaining({
-      model: 'gemini-3.8-flash',
+      model: 'gemini-3.6-flash',
       config: expect.objectContaining({ responseMimeType: 'application/json', responseJsonSchema: expect.objectContaining({ additionalProperties: false }) }),
     }));
     const request = generateContent.mock.calls[0]?.[0];
@@ -90,5 +90,13 @@ describe('roadmap generation', () => {
   it('hides malformed JSON and provider errors behind generation errors', async () => {
     await expect(generateRoadmap(input, { generateContent: async () => ({ text: '{' }) })).rejects.toBeInstanceOf(RoadmapGenerationError);
     await expect(generateRoadmap(input, { generateContent: async () => { throw new Error('secret'); } })).rejects.toBeInstanceOf(RoadmapGenerationError);
+  });
+
+  it('retries one invalid model response and succeeds', async () => {
+    const generateContent = vi.fn()
+      .mockResolvedValueOnce({ text: '{' })
+      .mockResolvedValueOnce({ text: JSON.stringify({ milestones }) });
+    await expect(generateRoadmap(input, { generateContent })).resolves.toHaveProperty('tasks');
+    expect(generateContent).toHaveBeenCalledTimes(2);
   });
 });
