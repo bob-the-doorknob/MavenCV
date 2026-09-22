@@ -70,3 +70,20 @@ trajectory/
             ├── TaskCard.tsx
             ├── ReadinessBar.tsx
             └── PaywallModal.tsx
+```
+
+---
+
+## 3. Onboarding — Experience Screen
+
+The Experience screen has two modes:
+- **"Upload CV (PDF)"** — sends the file to `POST /api/extract-profile` and fills the experience text box with the returned summary.
+- **"Write it myself"** — the student types directly into the same text box.
+
+Upload fills the same text box the manual mode uses, and the student can edit the result before generating a roadmap. Upload is a **stretch goal**, scheduled after the core loop (setup → roadmap → checklist → readiness → CV bullet) works end to end. The text box ships first.
+
+---
+
+## 4. Planned Backend Endpoints
+
+- `POST /api/extract-profile` — accepts a PDF (max 2 MB), returns `{ experienceText: string }`. The uploaded file is never persisted.
