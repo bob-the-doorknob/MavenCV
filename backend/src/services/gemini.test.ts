@@ -25,7 +25,7 @@ describe('createGeminiJsonGenerator', () => {
     })).resolves.toEqual({ text: '{"word":"OK"}' });
 
     expect(createInteraction).toHaveBeenCalledWith({
-      model: 'gemini-3.6-flash',
+      model: 'gemini-3.8-flash',
       input: 'Return OK.',
       system_instruction: 'Return JSON.',
       response_format: { type: 'text', mime_type: 'application/json', schema },
