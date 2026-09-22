@@ -6,6 +6,7 @@ import { getAuthToken } from './auth';
 
 const ROADMAP_TIMEOUT_MS = 45_000;
 const CV_BULLET_TIMEOUT_MS = 30_000;
+const EXTRACT_PROFILE_TIMEOUT_MS = 30_000;
 
 export type ApiErrorKind = 'rate_limited' | 'network' | 'server' | 'invalid_response' | 'auth';
 
@@ -31,28 +32,36 @@ const delay = (ms: number): Promise<void> => new Promise((resolve) => setTimeout
 const isAbortError = (error: unknown): boolean =>
   typeof error === 'object' && error !== null && 'name' in error && (error as { name?: unknown }).name === 'AbortError';
 
-/** POSTs JSON to the backend with an auth header (when available) and a hard timeout. */
-const requestJson = async (path: `/${string}`, body: unknown, timeoutMs: number): Promise<unknown> => {
+const requireBaseUrl = (): string => {
   const baseUrl = process.env.EXPO_PUBLIC_API_BASE_URL;
   if (!baseUrl?.trim()) {
     throw new Error(
       'EXPO_PUBLIC_API_BASE_URL is not set. Set it in mobile/.env, or set EXPO_PUBLIC_USE_MOCK_API=true for local development.',
     );
   }
+  return baseUrl.replace(/\/$/u, '');
+};
 
+/** POSTs to the backend with an auth header (when available) and a hard timeout. Shared by the JSON and multipart senders below. */
+const sendRequest = async (
+  path: `/${string}`,
+  init: Pick<RequestInit, 'headers' | 'body'>,
+  timeoutMs: number,
+): Promise<unknown> => {
+  const baseUrl = requireBaseUrl();
   const token = await getAuthToken();
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
   let response: Response;
   try {
-    response = await fetch(`${baseUrl.replace(/\/$/u, '')}${path}`, {
+    response = await fetch(`${baseUrl}${path}`, {
+      ...init,
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json',
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...init.headers,
       },
-      body: JSON.stringify(body),
       signal: controller.signal,
     });
   } catch (error) {
@@ -80,6 +89,13 @@ const requestJson = async (path: `/${string}`, body: unknown, timeoutMs: number)
     throw new ApiError('invalid_response', 'Response was not valid JSON.');
   }
 };
+
+const requestJson = (path: `/${string}`, body: unknown, timeoutMs: number): Promise<unknown> =>
+  sendRequest(path, { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }, timeoutMs);
+
+const requestMultipart = (path: `/${string}`, formData: FormData, timeoutMs: number): Promise<unknown> =>
+  // No Content-Type here: fetch sets the multipart boundary itself.
+  sendRequest(path, { body: formData }, timeoutMs);
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null;
@@ -168,6 +184,49 @@ export const generateCvBullet = async (input: GenerateCvBulletInput): Promise<Cv
 
   const raw = await requestJson('/api/cv-bullet', input, CV_BULLET_TIMEOUT_MS);
   return mapCvBulletResponse(raw);
+};
+
+export interface ExtractProfileFile {
+  uri: string;
+  name: string;
+}
+
+export interface ExtractProfileResult {
+  experienceText: string;
+}
+
+/** Converts the backend's { experienceText } response. */
+const mapExtractProfileResponse = (raw: unknown): ExtractProfileResult => {
+  if (!isRecord(raw) || typeof raw.experienceText !== 'string' || !raw.experienceText.trim()) {
+    throw new ApiError('invalid_response', 'CV extraction response was missing experienceText.');
+  }
+  return { experienceText: raw.experienceText };
+};
+
+/**
+ * Uploads a picked PDF to the backend for text extraction. The file is never
+ * persisted anywhere in the app — it's only read here and handed off.
+ *
+ * `roleId` is only used in mock mode, to pick a role-tailored sample; the
+ * real backend doesn't need it to extract text from a PDF.
+ */
+export const extractProfile = async (
+  file: ExtractProfileFile,
+  roleId?: string,
+): Promise<ExtractProfileResult> => {
+  if (isMockMode()) {
+    return mockExtractProfile(roleId);
+  }
+
+  const formData = new FormData();
+  // React Native's FormData accepts this shape for file fields; it isn't a real Blob.
+  formData.append(
+    'file',
+    { uri: file.uri, name: file.name, type: 'application/pdf' } as unknown as Blob,
+  );
+
+  const raw = await requestMultipart('/api/extract-profile', formData, EXTRACT_PROFILE_TIMEOUT_MS);
+  return mapExtractProfileResponse(raw);
 };
 
 // --- Mock mode -------------------------------------------------------------
@@ -321,4 +380,29 @@ const mockGenerateCvBullet = async (input: GenerateCvBulletInput): Promise<CvBul
   return {
     text: `Completed ${input.taskTitle}, as shown by: ${evidence}.`,
   };
+};
+
+const MOCK_CV_SUMMARIES_BY_ROLE_ID: Readonly<Record<string, string>> = {
+  'software-engineer':
+    'Final-year Computer Science student. Built a full-stack task-tracking app with React and Node.js, deployed on Render and used by over 200 classmates during a trial run. Contributed two merged pull requests to an open-source CLI tool, fixing a parser bug and adding test coverage. Completed coursework in data structures, algorithms, operating systems, and databases with a 3.8 GPA. Solved over 120 algorithm problems on LeetCode. Comfortable with TypeScript, Python, SQL, and Git, and have set up CI pipelines for two class projects. Looking to grow into a role building production systems at scale.',
+  'data-scientist':
+    'Final-year Statistics student. Analyzed a 50,000-row public housing dataset in Python, building a regression model that explained 78% of price variance for a class project. Took graduate-level courses in probability, statistical inference, and machine learning. Built a dashboard in Tableau summarizing survey data for a student research group. Comfortable with pandas, scikit-learn, SQL, and R. Completed a Kaggle competition placing in the top 15% on a classification task. Presented findings to a room of 40 students and faculty at a department symposium.',
+  'product-manager':
+    'Final-year Business student with a minor in Computer Science. Ran 8 user interviews and synthesized findings into a product spec for a mobile app class project, then led a team of 4 to ship the MVP in six weeks. Wrote two PRDs, one backed by a 200-response user survey. Completed coursework in product strategy, statistics, and UX research methods. Interned part-time at a local startup helping prioritize a feature backlog using RICE scoring. Comfortable running experiments, reading analytics dashboards, and facilitating stakeholder meetings.',
+  'ui-ux':
+    'Final-year Design student. Redesigned the checkout flow of a mock e-commerce app in Figma, running 5 usability tests that improved task completion from 60% to 92%. Built a portfolio with three end-to-end case studies covering research, wireframes, and final UI. Completed coursework in interaction design, typography, and user research methods. Collaborated with two engineering students to implement a redesigned onboarding flow that shipped in a class capstone. Comfortable with Figma, basic HTML/CSS, and running moderated usability sessions.',
+};
+
+const GENERIC_MOCK_CV_SUMMARY =
+  'Final-year student with hands-on project experience relevant to this target role. Completed coursework covering the core fundamentals of the field, led a team project from planning through delivery, and built a portfolio piece that demonstrates practical, applied skills. Comfortable picking up new tools quickly, working independently, and collaborating with a small team under a deadline. Presented project outcomes to peers and instructors on multiple occasions. Looking for an opportunity to apply this experience and keep growing quickly on the job.';
+
+const mockExtractProfile = async (roleId: string | undefined): Promise<ExtractProfileResult> => {
+  await delay(2_000);
+  const failure = mockFailureKind();
+  if (failure) {
+    throw new ApiError(failure, `Mocked ${failure} failure.`);
+  }
+
+  const experienceText = (roleId && MOCK_CV_SUMMARIES_BY_ROLE_ID[roleId]) || GENERIC_MOCK_CV_SUMMARY;
+  return { experienceText };
 };

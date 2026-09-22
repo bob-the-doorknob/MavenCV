@@ -4,45 +4,47 @@ import { StyleSheet, Text, TextInput, View } from 'react-native';
 import { radii, spacing, typography, type Theme } from '../../theme/tokens';
 import { useTheme } from '../../theme/useTheme';
 
-interface TextAreaProps {
+interface TextFieldProps {
   value: string;
   onChangeText: (text: string) => void;
   placeholder?: string;
   label?: string;
-  maxLength: number;
-  numberOfLines?: number;
-  /** Defaults to true. Set false to hide the raw counter (e.g. only show it near the limit). */
-  showCount?: boolean;
+  maxLength?: number;
+  error?: string;
+  disabled?: boolean;
+  accessibilityLabel?: string;
 }
 
-export function TextArea({
+/** Single-line counterpart to TextArea — same styling via tokens. */
+export function TextField({
   value,
   onChangeText,
   placeholder,
   label,
   maxLength,
-  numberOfLines = 4,
-  showCount = true,
-}: TextAreaProps) {
+  error,
+  disabled = false,
+  accessibilityLabel,
+}: TextFieldProps) {
   const theme = useTheme();
   const styles = useMemo(() => createStyles(theme), [theme]);
-  const atLimit = value.length >= maxLength;
+  const atLimit = maxLength !== undefined && value.length >= maxLength;
 
   return (
     <View style={styles.container}>
       {label ? <Text style={styles.label}>{label}</Text> : null}
       <TextInput
+        accessibilityLabel={accessibilityLabel ?? label}
+        editable={!disabled}
         maxLength={maxLength}
-        multiline
-        numberOfLines={numberOfLines}
         onChangeText={onChangeText}
         placeholder={placeholder}
         placeholderTextColor={theme.colors.textMuted}
-        style={styles.input}
-        textAlignVertical="top"
+        style={[styles.input, Boolean(error) && styles.inputError, disabled && styles.inputDisabled]}
         value={value}
       />
-      {showCount ? (
+      {error ? <Text style={styles.error}>{error}</Text> : null}
+      {maxLength !== undefined ? (
         <Text style={[styles.count, atLimit && styles.countAtLimit]}>
           {value.length}/{maxLength}
         </Text>
@@ -70,9 +72,18 @@ const createStyles = (theme: Theme) =>
       color: theme.colors.textPrimary,
       fontFamily: typography.body.fontFamily,
       fontSize: typography.body.fontSize,
-      lineHeight: typography.body.lineHeight,
-      minHeight: 96,
       padding: spacing.md,
+    },
+    inputError: {
+      borderColor: theme.colors.danger,
+    },
+    inputDisabled: {
+      opacity: 0.4,
+    },
+    error: {
+      color: theme.colors.danger,
+      fontFamily: typography.caption.fontFamily,
+      fontSize: typography.caption.fontSize,
     },
     count: {
       alignSelf: 'flex-end',

@@ -21,8 +21,10 @@ export function Chip({ label, selected = false, disabled = false, onPress }: Chi
 
   return (
     <Pressable
+      accessibilityLabel={label}
       accessibilityRole="button"
       accessibilityState={{ selected, disabled }}
+      android_ripple={{ color: theme.colors.border }}
       disabled={disabled}
       onPress={onPress}
       style={({ pressed }) => [

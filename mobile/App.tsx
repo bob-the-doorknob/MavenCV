@@ -1,10 +1,10 @@
 import { useEffect } from 'react';
-import { AppState, SafeAreaView, StyleSheet } from 'react-native';
+import { AppState, StyleSheet, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 
-// TEMPORARY: showing the design-system review harness instead of SetupScreen.
-// Swap back to SetupScreen once the gallery has been reviewed.
-import { UiGalleryScreen } from './src/screens/UiGalleryScreen';
+import { OnboardingFlow } from './src/screens/onboarding/OnboardingFlow';
+import { RoadmapPreview } from './src/screens/onboarding/RoadmapPreview';
 import { processPendingCvEntries } from './src/services/cvQueue';
 import { configureRevenueCat } from './src/services/revenueCat';
 import { useAppStore } from './src/store/useAppStore';
@@ -12,6 +12,7 @@ import { useTheme } from './src/theme/useTheme';
 
 export default function App() {
   const theme = useTheme();
+  const hasTargets = useAppStore((state) => state.targets.length > 0);
 
   useEffect(() => {
     configureRevenueCat();
@@ -45,10 +46,16 @@ export default function App() {
   }, []);
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
-      <StatusBar style={theme.mode === 'dark' ? 'light' : 'dark'} />
-      <UiGalleryScreen />
-    </SafeAreaView>
+    <SafeAreaProvider>
+      {/* Each onboarding/preview screen applies its own safe-area insets —
+          this wrapper only sets the background so there's no gap around them. */}
+      <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
+        <StatusBar style={theme.mode === 'dark' ? 'light' : 'dark'} />
+        {/* TEMPORARY: RoadmapPreview stands in for the real home/roadmap screen
+            until one exists. */}
+        {hasTargets ? <RoadmapPreview /> : <OnboardingFlow />}
+      </View>
+    </SafeAreaProvider>
   );
 }
 

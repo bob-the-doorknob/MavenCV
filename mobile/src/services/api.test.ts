@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { ApiError, generateRoadmap, mapCvBulletResponse, mapRoadmapResponse } from './api';
+import { ApiError, extractProfile, generateRoadmap, mapCvBulletResponse, mapRoadmapResponse } from './api';
 
 describe('mapRoadmapResponse', () => {
   it('fills safe defaults for fields the backend does not send yet', () => {
@@ -105,5 +105,58 @@ describe('generateRoadmap (real mode) error mapping', () => {
     );
 
     await expect(generateRoadmap(roadmapInput)).rejects.toMatchObject({ kind: 'invalid_response' });
+  });
+});
+
+describe('extractProfile (mock mode)', () => {
+  const file = { uri: 'file:///tmp/cv.pdf', name: 'cv.pdf' };
+  const EXPERIENCE_MIN_SAMPLE_LENGTH = 100;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.stubEnv('EXPO_PUBLIC_USE_MOCK_API', 'true');
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllEnvs();
+  });
+
+  it('returns a non-empty, role-tailored sample after the mock delay', async () => {
+    const promise = extractProfile(file, 'software-engineer');
+    await vi.advanceTimersByTimeAsync(2_000);
+
+    const result = await promise;
+    expect(result.experienceText.length).toBeGreaterThan(EXPERIENCE_MIN_SAMPLE_LENGTH);
+    expect(result.experienceText).toContain('Computer Science');
+  });
+
+  it('returns different text for a different role', async () => {
+    const promiseA = extractProfile(file, 'software-engineer');
+    await vi.advanceTimersByTimeAsync(2_000);
+    const resultA = await promiseA;
+
+    const promiseB = extractProfile(file, 'ui-ux');
+    await vi.advanceTimersByTimeAsync(2_000);
+    const resultB = await promiseB;
+
+    expect(resultA.experienceText).not.toBe(resultB.experienceText);
+  });
+
+  it('falls back to a generic sample for an unknown or missing role', async () => {
+    const promise = extractProfile(file);
+    await vi.advanceTimersByTimeAsync(2_000);
+
+    const result = await promise;
+    expect(result.experienceText.length).toBeGreaterThan(EXPERIENCE_MIN_SAMPLE_LENGTH);
+  });
+
+  it('throws the configured ApiError kind when EXPO_PUBLIC_MOCK_FAIL is set', async () => {
+    vi.stubEnv('EXPO_PUBLIC_MOCK_FAIL', 'server');
+
+    const promise = extractProfile(file, 'software-engineer');
+    const assertion = expect(promise).rejects.toMatchObject({ kind: 'server' });
+    await vi.advanceTimersByTimeAsync(2_000);
+    await assertion;
   });
 });

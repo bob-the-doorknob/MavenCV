@@ -29,8 +29,10 @@ export function Button({
 
   return (
     <Pressable
+      accessibilityLabel={label}
       accessibilityRole="button"
       accessibilityState={{ disabled: isDisabled, busy: loading }}
+      android_ripple={{ color: theme.colors.border }}
       disabled={isDisabled}
       onPress={onPress}
       style={({ pressed }) => [

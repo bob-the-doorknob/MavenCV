@@ -5,3 +5,4 @@ export { EmptyState } from './EmptyState';
 export { ProgressBar } from './ProgressBar';
 export { Sheet } from './Sheet';
 export { TextArea } from './TextArea';
+export { TextField } from './TextField';

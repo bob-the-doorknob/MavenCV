@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 
-import { Button, Card, Chip, EmptyState, ProgressBar, Sheet, TextArea } from '../components/ui';
+import { Button, Card, Chip, EmptyState, ProgressBar, Sheet, TextArea, TextField } from '../components/ui';
 import { spacing, typography, type Theme } from '../theme/tokens';
 import { useTheme } from '../theme/useTheme';
 
@@ -16,6 +16,7 @@ export function UiGalleryScreen() {
   const [chipSelection, setChipSelection] = useState<'draft' | 'review' | 'final'>('review');
   const [progress, setProgress] = useState(35);
   const [notes, setNotes] = useState('Led a small migration project.');
+  const [company, setCompany] = useState('');
 
   return (
     <ScrollView contentContainerStyle={styles.content} style={styles.screen}>
@@ -64,6 +65,13 @@ export function UiGalleryScreen() {
       <Section title="TextArea">
         <TextArea label="Notes" maxLength={60} onChangeText={setNotes} placeholder="What did you do?" value={notes} />
         <TextArea label="At limit" maxLength={12} numberOfLines={2} onChangeText={() => {}} value="Twelve chars" />
+      </Section>
+
+      <Section title="TextField">
+        <TextField label="Target company" onChangeText={setCompany} placeholder="e.g. Google" value={company} />
+        <TextField label="With a limit" maxLength={20} onChangeText={() => {}} value="Twelve chars" />
+        <TextField error="This field is required." label="With an error" onChangeText={() => {}} value="" />
+        <TextField disabled label="Disabled" onChangeText={() => {}} value="Can't edit this" />
       </Section>
 
       <Section title="EmptyState">
