@@ -9,7 +9,7 @@ export function SetupScreen() {
 
   return (
     <View style={styles.container}>
-      <Text style={styles.eyebrow}>TRAJECTORY</Text>
+      <Text style={styles.eyebrow}>MAVEN</Text>
       <Text style={styles.title}>Turn career goals into measurable progress.</Text>
       <Text style={styles.body}>
         Choose a target role, map the milestones that matter, and build evidence for your CV.

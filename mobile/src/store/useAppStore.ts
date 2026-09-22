@@ -112,7 +112,7 @@ export const migrate = (persistedState: unknown): PersistedAppState => {
   }
   const check = checkPersistedAppState(persistedState);
   if (!check.ok) {
-    console.warn(`Trajectory: resetting persisted app state — ${check.reason}.`);
+    console.warn(`Maven: resetting persisted app state — ${check.reason}.`);
     return emptyState;
   }
   return persistedState as PersistedAppState;
