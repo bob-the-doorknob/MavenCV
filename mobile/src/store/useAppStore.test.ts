@@ -116,15 +116,40 @@ describe('deleteTask', () => {
     expect(after).toBe(100);
   });
 
-  it('keeps CV entries already earned for the deleted task', () => {
+  it('removes a pending CV entry for the deleted task', () => {
     const { addTarget, completeTask, deleteTask } = useAppStore.getState();
     addTarget({ ...baseTargetInput, roadmap: [task()] });
     completeTask('task-1', 'notes');
-    expect(useAppStore.getState().cvEntries).toHaveLength(1);
+    expect(useAppStore.getState().cvEntries[0]?.status).toBe('pending');
+
+    deleteTask('task-1');
+
+    expect(useAppStore.getState().cvEntries).toHaveLength(0);
+  });
+
+  it('removes a failed CV entry for the deleted task', () => {
+    const { addTarget, completeTask, deleteTask, updateCvEntry } = useAppStore.getState();
+    addTarget({ ...baseTargetInput, roadmap: [task()] });
+    completeTask('task-1', 'notes');
+    const entryId = useAppStore.getState().cvEntries[0]?.id as string;
+    updateCvEntry(entryId, { status: 'failed' });
+
+    deleteTask('task-1');
+
+    expect(useAppStore.getState().cvEntries).toHaveLength(0);
+  });
+
+  it('keeps a ready CV entry (an earned CV line) for the deleted task', () => {
+    const { addTarget, completeTask, deleteTask, updateCvEntry } = useAppStore.getState();
+    addTarget({ ...baseTargetInput, roadmap: [task()] });
+    completeTask('task-1', 'notes');
+    const entryId = useAppStore.getState().cvEntries[0]?.id as string;
+    updateCvEntry(entryId, { status: 'ready', text: 'Built 1 portfolio project.' });
 
     deleteTask('task-1');
 
     expect(useAppStore.getState().cvEntries).toHaveLength(1);
+    expect(useAppStore.getState().cvEntries[0]?.status).toBe('ready');
   });
 });
 

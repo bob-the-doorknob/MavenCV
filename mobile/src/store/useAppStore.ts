@@ -129,6 +129,7 @@ interface AppState extends PersistedAppState {
   setActiveTarget: (targetId: string | null) => void;
   removeTarget: (targetId: string) => void;
   startTask: (taskId: string) => void;
+  /** Don't call this directly from a screen — use completeTaskAndQueue from services/tasks.ts, which also fires the CV-bullet queue. */
   completeTask: (taskId: string, notes: string) => void;
   editTask: (
     taskId: string,
@@ -172,9 +173,9 @@ export const useAppStore = create<AppState>()(
           const targets = state.targets.filter((target) => target.id !== targetId);
           const activeTargetId =
             state.activeTargetId === targetId ? (targets[0]?.id ?? null) : state.activeTargetId;
-          // The user explicitly removed this target: its CV lines go with it.
-          // deleteTask (removing a single task) does NOT do this — earned CV
-          // lines survive a roadmap edit.
+          // The user explicitly removed this target: ALL of its CV entries go
+          // with it, including 'ready' ones. deleteTask (below) is gentler —
+          // it only drops entries that were never earned.
           const cvEntries = state.cvEntries.filter((entry) => entry.targetId !== targetId);
           return { targets, activeTargetId, cvEntries };
         }),
@@ -227,6 +228,9 @@ export const useAppStore = create<AppState>()(
           targets: mapActiveRoadmap(state.targets, state.activeTargetId, (tasks) =>
             tasks.filter((task) => task.id !== taskId),
           ),
+          // Drop not-yet-earned entries for this task (pending/failed); a
+          // 'ready' entry is an earned CV line and survives.
+          cvEntries: state.cvEntries.filter((entry) => entry.taskId !== taskId || entry.status === 'ready'),
         })),
 
       addCvEntry: (entry) => {
