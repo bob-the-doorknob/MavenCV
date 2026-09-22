@@ -14,7 +14,7 @@
 Students aiming for competitive internships (e.g., Jane Street, Google, McKinsey) fail not because they lack CV builders, but because they do not know what milestones to complete to become qualified.
 
 **Trajectory** is an actionable career roadmap companion:
-1. **Setup (One-time, ~2 min):** The student inputs current technical experience and selects a target role.
+1. **Setup (One-time, ~2 min):** The student selects a target role and can provide a PDF CV. The backend extracts relevant experience from it for the student to review and edit before roadmap generation. Manual experience entry remains available when no CV is provided.
 2. **Gap Analysis:** The backend uses model general knowledge and repository-authored cross-industry examples to generate 5–7 measurable, verifiable checklist items. No scraped or bundled job dataset is used.
 3. **Daily Companion (15-second check-in):** A persistent, offline living checklist tracks tasks (`Not Started` -> `In Progress` -> `Done`).
 4. **Mathematical Readiness Score:** Real-time score calculated via deterministic arithmetic based on task weights (not AI hallucinations).

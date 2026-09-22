@@ -94,6 +94,8 @@ describe('roadmap generation', () => {
     const request = generateContent.mock.calls[0]?.[0];
     expect(request.config.responseJsonSchema.properties.milestones.items.properties.verb.enum).toContain('Validate');
     expect(request.config.systemInstruction).toContain('Build, Complete, Create');
+    expect(request.config.systemInstruction).toContain('demonstrated experience');
+    expect(request.config.systemInstruction).toContain('Do not assume an omitted skill is absent');
   });
 
   it.each([

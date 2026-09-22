@@ -18,6 +18,50 @@ const createApp = (dependencies: AppDependencies = {}) => createProductionApp({
 });
 
 describe('Trajectory backend', () => {
+  it('extracts CV experience through an authenticated, quota-limited route', async () => {
+    const response = await request(createApp({ generateCvProfile: async () => ({ experience: 'Built a Python project.', questions: [] }) }))
+      .post('/api/cv-profile').set('Authorization', 'Bearer token')
+      .send({ pdfBase64: Buffer.from('%PDF-1.7\n%%EOF').toString('base64'), targetRoleId: 'quant' });
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({ experience: 'Built a Python project.', questions: [] });
+  });
+
+  it('accepts a PDF request larger than the small JSON limit', async () => {
+    const pdf = Buffer.from(`%PDF-1.7\n${'x'.repeat(40_000)}\n%%EOF`).toString('base64');
+    const response = await request(createApp({ generateCvProfile: async () => ({ experience: 'Built a project.', questions: [] }) }))
+      .post('/api/cv-profile').send({ pdfBase64: pdf, targetRoleId: 'software-engineer' });
+    expect(response.status).toBe(200);
+  });
+
+  it('returns a JSON error for a PDF request over the body limit', async () => {
+    const response = await request(createApp()).post('/api/cv-profile').send({
+      pdfBase64: Buffer.alloc(2_500_000, 1).toString('base64'), targetRoleId: 'quant',
+    });
+    expect(response.status).toBe(413);
+    expect(response.body.error.code).toBe('REQUEST_TOO_LARGE');
+  });
+
+  it('rejects an invalid CV before quota use', async () => {
+    let quotaCalls = 0;
+    const response = await request(createApp({ consumeQuota: async () => { quotaCalls += 1; return { allowed: true }; } }))
+      .post('/api/cv-profile').send({ pdfBase64: 'wrong', targetRoleId: 'quant' });
+    expect(response.status).toBe(400);
+    expect(quotaCalls).toBe(0);
+  });
+
+  it('applies the shared quota to CV extraction', async () => {
+    let generationCalls = 0;
+    const response = await request(createApp({
+      consumeQuota: async () => ({ allowed: false, retryAfterSeconds: 12 }),
+      generateCvProfile: async () => { generationCalls += 1; return { experience: 'Unreachable', questions: [] }; },
+    })).post('/api/cv-profile').send({
+      pdfBase64: Buffer.from('%PDF-1.7\n%%EOF').toString('base64'), targetRoleId: 'quant',
+    });
+    expect(response.status).toBe(429);
+    expect(response.headers['retry-after']).toBe('12');
+    expect(generationCalls).toBe(0);
+  });
+
   it('serves the grouped tech role catalog without AI quota', async () => {
     const response = await request(createApp({ consumeQuota: async () => { throw new Error('should not be called'); } })).get('/api/roles');
     expect(response.status).toBe(200);

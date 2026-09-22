@@ -8,15 +8,21 @@ import {
   normalizeCvBulletInput, type CvBulletInput, type CvBulletResult,
 } from '../services/cvBullet.js';
 import {
+  CvProfileGenerationError, CvProfileValidationError, generateCvProfile,
+  normalizeCvProfileInput, type CvProfileInput, type CvProfileResult,
+} from '../services/cvProfile.js';
+import {
   generateRoadmap, normalizeRoadmapInput, RoadmapGenerationError, RoadmapValidationError,
   type RoadmapInput, type RoadmapResult,
 } from '../services/roadmap.js';
 
 type CvBulletGenerator = (input: CvBulletInput) => Promise<CvBulletResult>;
+type CvProfileGenerator = (input: CvProfileInput) => Promise<CvProfileResult>;
 type RoadmapGenerator = (input: RoadmapInput) => Promise<RoadmapResult>;
 
 export interface AiRouterDependencies {
   generateCvBullet?: CvBulletGenerator;
+  generateCvProfile?: CvProfileGenerator;
   generateRoadmap?: RoadmapGenerator;
   authenticate?: RequestAuthenticator;
   consumeQuota?: AiRateLimiter;
@@ -35,12 +41,16 @@ const handleError = (error: unknown, response: Response): void => {
     sendError(response, 400, 'INVALID_ROADMAP_INPUT', error.message);
   } else if (error instanceof CvBulletValidationError) {
     sendError(response, 400, 'INVALID_CV_BULLET_INPUT', error.message);
+  } else if (error instanceof CvProfileValidationError) {
+    sendError(response, 400, 'INVALID_CV_PROFILE_INPUT', error.message);
   } else if (error instanceof QuotaStoreError) {
     sendError(response, 503, 'SERVICE_UNAVAILABLE', 'AI quota is temporarily unavailable.');
   } else if (error instanceof RoadmapGenerationError) {
     sendError(response, 502, 'ROADMAP_GENERATION_FAILED', 'Unable to generate a valid roadmap.');
   } else if (error instanceof CvBulletGenerationError) {
     sendError(response, 502, 'CV_BULLET_GENERATION_FAILED', 'Unable to generate a valid CV bullet.');
+  } else if (error instanceof CvProfileGenerationError) {
+    sendError(response, 502, 'CV_PROFILE_GENERATION_FAILED', 'Unable to extract CV experience.');
   } else {
     sendError(response, 500, 'INTERNAL_ERROR', 'An unexpected error occurred.');
   }
@@ -48,6 +58,7 @@ const handleError = (error: unknown, response: Response): void => {
 
 export const createAiRouter = ({
   generateCvBullet: generateBullet = generateCvBullet,
+  generateCvProfile: generateProfile = generateCvProfile,
   generateRoadmap: generateTasks = generateRoadmap,
   authenticate = authenticateAuthorization,
   consumeQuota = consumeAiQuota,
@@ -82,5 +93,6 @@ export const createAiRouter = ({
 
   router.post('/roadmap', handlePost(normalizeRoadmapInput, generateTasks));
   router.post('/cv-bullet', handlePost(normalizeCvBulletInput, generateBullet));
+  router.post('/cv-profile', handlePost(normalizeCvProfileInput, generateProfile));
   return router;
 };

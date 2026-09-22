@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { ApiResponseError } from '../services/api';
+import { CvFileError, pickAndExtractCv } from '../services/cvProfile';
 import { generateTargetRole, loadRoleCatalog, type RoleCatalog, type RoleOption } from '../services/roadmap';
 import { useAppStore } from '../store/useAppStore';
 import { colors, radius, spacing, typography } from '../theme/tokens';
@@ -19,6 +20,9 @@ export function SetupScreen() {
   const [catalogError, setCatalogError] = useState(false);
   const [selectedRole, setSelectedRole] = useState<RoleOption | null>(null);
   const [experience, setExperience] = useState('');
+  const [cvQuestions, setCvQuestions] = useState<string[]>([]);
+  const [cvExtracted, setCvExtracted] = useState(false);
+  const [cvConfirmed, setCvConfirmed] = useState(false);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const setTargetRoles = useAppStore((state) => state.setTargetRoles);
@@ -31,6 +35,28 @@ export function SetupScreen() {
 
   useEffect(() => { loadCatalog(); }, []);
 
+  const extractCv = async () => {
+    if (!selectedRole) {
+      setError('Choose a target role first.');
+      return;
+    }
+    setBusy(true);
+    setError('');
+    try {
+      const profile = await pickAndExtractCv(selectedRole.id);
+      if (profile) {
+        setExperience(profile.experience);
+        setCvQuestions(profile.questions);
+        setCvExtracted(true);
+        setCvConfirmed(false);
+      }
+    } catch (caught: unknown) {
+      setError(caught instanceof CvFileError ? caught.message : 'Could not read your CV. Check the PDF and try again.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const generate = async () => {
     if (!selectedRole) {
       setError('Choose a target role first.');
@@ -39,6 +65,10 @@ export function SetupScreen() {
     const trimmedExperience = experience.trim();
     if (!trimmedExperience) {
       setError('Tell us about your current experience first.');
+      return;
+    }
+    if (cvExtracted && !cvConfirmed) {
+      setError('Review and confirm the extracted experience first.');
       return;
     }
     setBusy(true);
@@ -81,7 +111,15 @@ export function SetupScreen() {
                     key={role.id}
                     accessibilityRole="radio"
                     accessibilityState={{ selected }}
-                    onPress={() => { setSelectedRole(role); setError(''); }}
+                    onPress={() => {
+                      if (selectedRole?.id !== role.id) {
+                        setCvQuestions([]);
+                        setCvExtracted(false);
+                        setCvConfirmed(false);
+                      }
+                      setSelectedRole(role);
+                      setError('');
+                    }}
                     style={[styles.option, selected && styles.selectedOption]}
                   >
                     <Text style={[styles.optionText, selected && styles.selectedOptionText]}>{role.title}</Text>
@@ -93,18 +131,35 @@ export function SetupScreen() {
         ))
       )}
 
-      <Text style={styles.groupTitle}>Your current experience</Text>
+      <View style={styles.group}>
+        <Text style={styles.groupTitle}>Start with your CV</Text>
+        <Text style={styles.body}>Choose a PDF CV (up to 2 MB). We send it to our AI backend to extract experience; you review the summary before generating a roadmap.</Text>
+        <Pressable accessibilityRole="button" disabled={busy || !catalog} onPress={() => { void extractCv(); }} style={styles.uploadButton}>
+          <Text style={styles.uploadButtonText}>Choose PDF CV</Text>
+        </Pressable>
+      </View>
+
+      <Text style={styles.groupTitle}>{cvExtracted ? 'Review your experience' : 'Or describe your experience'}</Text>
       <TextInput
         accessibilityLabel="Your current experience"
         maxLength={4000}
         multiline
-        onChangeText={setExperience}
+        onChangeText={(text) => { setExperience(text); setCvConfirmed(false); }}
         placeholder="Courses, projects, skills, or internships you have completed"
         placeholderTextColor={colors.textMuted}
         style={styles.input}
         textAlignVertical="top"
         value={experience}
       />
+      {cvExtracted ? (
+        <View style={styles.notice}>
+          <Text style={styles.body}>Check these details, add anything your CV missed, and answer any questions in the experience box above.</Text>
+          {cvQuestions.map((question) => <Text key={question} style={styles.body}>• {question}</Text>)}
+          <Pressable accessibilityRole="checkbox" accessibilityState={{ checked: cvConfirmed }} onPress={() => setCvConfirmed(!cvConfirmed)}>
+            <Text style={styles.retry}>{cvConfirmed ? '✓ ' : '○ '}I confirm this describes my experience</Text>
+          </Pressable>
+        </View>
+      ) : null}
       {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
       <Pressable
         accessibilityRole="button"
@@ -134,6 +189,8 @@ const styles = StyleSheet.create({
   error: { color: '#B42318', fontSize: typography.caption },
   notice: { backgroundColor: colors.primaryMuted, borderRadius: radius.md, gap: spacing.sm, padding: spacing.md },
   retry: { color: colors.primary, fontSize: typography.body, fontWeight: '700' },
+  uploadButton: { alignItems: 'center', borderColor: colors.primary, borderRadius: radius.md, borderWidth: 1, minHeight: 48, justifyContent: 'center', padding: spacing.md },
+  uploadButtonText: { color: colors.primary, fontSize: typography.body, fontWeight: '700' },
   button: { alignItems: 'center', backgroundColor: colors.primary, borderRadius: radius.md, minHeight: 52, justifyContent: 'center', padding: spacing.md },
   disabledButton: { opacity: 0.5 },
   buttonText: { color: colors.surface, fontSize: typography.body, fontWeight: '700' },

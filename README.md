@@ -72,9 +72,17 @@ for `401` and `429` when the generation screens are built.
 The daily checklist stays local and makes no AI requests. The setup screen loads
 the public `GET /api/roles` catalog, asks for one role and current experience,
 then generates and saves that role's roadmap. The catalog has 14 roles in four
-categories; the backend keeps role guidance private and inserts it into the
+categories; the backend returns only role labels in the catalog and inserts role guidance into the
 shared roadmap system instruction. For example, `quant` focuses on statistics,
 backtesting, and risk. One active role is supported in this setup flow.
+
+Setup also accepts a PDF CV up to 2 MB. The authenticated `POST /api/cv-profile`
+route accepts `{ "pdfBase64": "...", "targetRoleId": "quant" }` and returns an
+editable `experience` summary plus up to three `questions`. The mobile app asks
+the student to confirm or edit the extracted experience before requesting a
+roadmap. Manual experience entry remains available. The PDF is sent inline to
+Gemini with `store: false`; the backend does not save it. This extraction uses
+the shared AI quota and does not determine readiness or claim a skill level.
 
 Set `EXPO_PUBLIC_API_URL` to a backend address reachable from the device. The
 default `localhost` URL works only when the mobile runtime can reach the backend
