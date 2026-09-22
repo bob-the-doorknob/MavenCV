@@ -1,6 +1,7 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { colors, radius, spacing, typography } from '../theme/tokens';
+import { radii, spacing, typography, type Theme } from '../theme/tokens';
+import { useTheme } from '../theme/useTheme';
 import type { RoadmapTask, TaskStatus } from '../types';
 
 interface TaskCardProps {
@@ -15,6 +16,9 @@ const statusLabels: Readonly<Record<TaskStatus, string>> = {
 };
 
 export function TaskCard({ task, onPress }: TaskCardProps) {
+  const theme = useTheme();
+  const styles = createStyles(theme);
+
   return (
     <Pressable
       accessibilityRole="button"
@@ -24,7 +28,7 @@ export function TaskCard({ task, onPress }: TaskCardProps) {
     >
       <View style={styles.copy}>
         <Text style={styles.title}>{task.title}</Text>
-        <Text style={styles.weight}>Weight {task.weight}</Text>
+        <Text style={styles.weight}>Priority {task.priority}</Text>
       </View>
       <Text style={task.status === 'done' ? styles.doneStatus : styles.status}>
         {statusLabels[task.status]}
@@ -33,39 +37,40 @@ export function TaskCard({ task, onPress }: TaskCardProps) {
   );
 }
 
-const styles = StyleSheet.create({
-  card: {
-    alignItems: 'center',
-    backgroundColor: colors.surface,
-    borderColor: colors.border,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    flexDirection: 'row',
-    gap: spacing.md,
-    justifyContent: 'space-between',
-    padding: spacing.md,
-  },
-  copy: {
-    flex: 1,
-    gap: spacing.xs,
-  },
-  title: {
-    color: colors.text,
-    fontSize: typography.body,
-    fontWeight: '600',
-  },
-  weight: {
-    color: colors.textMuted,
-    fontSize: typography.caption,
-  },
-  status: {
-    color: colors.primary,
-    fontSize: typography.caption,
-    fontWeight: '700',
-  },
-  doneStatus: {
-    color: colors.success,
-    fontSize: typography.caption,
-    fontWeight: '700',
-  },
-});
+const createStyles = (theme: Theme) =>
+  StyleSheet.create({
+    card: {
+      alignItems: 'center',
+      backgroundColor: theme.colors.surface,
+      borderColor: theme.colors.border,
+      borderRadius: radii.md,
+      borderWidth: 1,
+      flexDirection: 'row',
+      gap: spacing.md,
+      justifyContent: 'space-between',
+      padding: spacing.md,
+    },
+    copy: {
+      flex: 1,
+      gap: spacing.xs,
+    },
+    title: {
+      color: theme.colors.textPrimary,
+      fontSize: typography.body.fontSize,
+      fontWeight: '600',
+    },
+    weight: {
+      color: theme.colors.textMuted,
+      fontSize: typography.caption.fontSize,
+    },
+    status: {
+      color: theme.colors.textSecondary,
+      fontSize: typography.caption.fontSize,
+      fontWeight: '700',
+    },
+    doneStatus: {
+      color: theme.colors.accent,
+      fontSize: typography.caption.fontSize,
+      fontWeight: '700',
+    },
+  });

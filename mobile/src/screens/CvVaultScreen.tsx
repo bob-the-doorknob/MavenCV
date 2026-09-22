@@ -1,6 +1,7 @@
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 
-import { colors, radius, spacing, typography } from '../theme/tokens';
+import { radii, spacing, typography, type Theme } from '../theme/tokens';
+import { useTheme } from '../theme/useTheme';
 import type { CvEntry } from '../types';
 
 interface CvVaultScreenProps {
@@ -8,6 +9,9 @@ interface CvVaultScreenProps {
 }
 
 export function CvVaultScreen({ entries }: CvVaultScreenProps) {
+  const theme = useTheme();
+  const styles = createStyles(theme);
+
   return (
     <ScrollView contentContainerStyle={styles.container}>
       <Text style={styles.heading}>CV Vault</Text>
@@ -24,31 +28,32 @@ export function CvVaultScreen({ entries }: CvVaultScreenProps) {
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    gap: spacing.md,
-    padding: spacing.lg,
-  },
-  heading: {
-    color: colors.text,
-    fontSize: typography.heading,
-    fontWeight: '700',
-  },
-  empty: {
-    color: colors.textMuted,
-    fontSize: typography.body,
-    lineHeight: 24,
-  },
-  entry: {
-    backgroundColor: colors.surface,
-    borderColor: colors.border,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    padding: spacing.md,
-  },
-  entryText: {
-    color: colors.text,
-    fontSize: typography.body,
-    lineHeight: 24,
-  },
-});
+const createStyles = (theme: Theme) =>
+  StyleSheet.create({
+    container: {
+      gap: spacing.md,
+      padding: spacing.lg,
+    },
+    heading: {
+      color: theme.colors.textPrimary,
+      fontSize: typography.heading.fontSize,
+      fontWeight: '700',
+    },
+    empty: {
+      color: theme.colors.textSecondary,
+      fontSize: typography.body.fontSize,
+      lineHeight: 24,
+    },
+    entry: {
+      backgroundColor: theme.colors.surface,
+      borderColor: theme.colors.border,
+      borderRadius: radii.md,
+      borderWidth: 1,
+      padding: spacing.md,
+    },
+    entryText: {
+      color: theme.colors.textPrimary,
+      fontSize: typography.body.fontSize,
+      lineHeight: 24,
+    },
+  });

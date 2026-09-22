@@ -1,8 +1,12 @@
 import { StyleSheet, Text, View } from 'react-native';
 
-import { colors, radius, spacing, typography } from '../theme/tokens';
+import { radii, spacing, typography, type Theme } from '../theme/tokens';
+import { useTheme } from '../theme/useTheme';
 
 export function SetupScreen() {
+  const theme = useTheme();
+  const styles = createStyles(theme);
+
   return (
     <View style={styles.container}>
       <Text style={styles.eyebrow}>TRAJECTORY</Text>
@@ -20,45 +24,46 @@ export function SetupScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    gap: spacing.md,
-    justifyContent: 'center',
-    padding: spacing.lg,
-  },
-  eyebrow: {
-    color: colors.primary,
-    fontSize: typography.caption,
-    fontWeight: '800',
-    letterSpacing: 2,
-  },
-  title: {
-    color: colors.text,
-    fontSize: typography.title,
-    fontWeight: '800',
-    lineHeight: 38,
-  },
-  body: {
-    color: colors.textMuted,
-    fontSize: typography.body,
-    lineHeight: 24,
-  },
-  notice: {
-    backgroundColor: colors.primaryMuted,
-    borderRadius: radius.md,
-    gap: spacing.sm,
-    marginTop: spacing.sm,
-    padding: spacing.md,
-  },
-  noticeTitle: {
-    color: colors.text,
-    fontSize: typography.body,
-    fontWeight: '700',
-  },
-  noticeBody: {
-    color: colors.textMuted,
-    fontSize: typography.caption,
-    lineHeight: 19,
-  },
-});
+const createStyles = (theme: Theme) =>
+  StyleSheet.create({
+    container: {
+      flex: 1,
+      gap: spacing.md,
+      justifyContent: 'center',
+      padding: spacing.lg,
+    },
+    eyebrow: {
+      color: theme.colors.accent,
+      fontSize: typography.caption.fontSize,
+      fontWeight: '800',
+      letterSpacing: 2,
+    },
+    title: {
+      color: theme.colors.textPrimary,
+      fontSize: typography.title.fontSize,
+      fontWeight: '800',
+      lineHeight: 38,
+    },
+    body: {
+      color: theme.colors.textSecondary,
+      fontSize: typography.body.fontSize,
+      lineHeight: 24,
+    },
+    notice: {
+      backgroundColor: theme.colors.accentMuted,
+      borderRadius: radii.md,
+      gap: spacing.sm,
+      marginTop: spacing.sm,
+      padding: spacing.md,
+    },
+    noticeTitle: {
+      color: theme.colors.textPrimary,
+      fontSize: typography.body.fontSize,
+      fontWeight: '700',
+    },
+    noticeBody: {
+      color: theme.colors.textMuted,
+      fontSize: typography.caption.fontSize,
+      lineHeight: 19,
+    },
+  });

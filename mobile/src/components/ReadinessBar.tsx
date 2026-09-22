@@ -1,12 +1,15 @@
 import { StyleSheet, Text, View } from 'react-native';
 
-import { colors, radius, spacing, typography } from '../theme/tokens';
+import { radii, spacing, typography, type Theme } from '../theme/tokens';
+import { useTheme } from '../theme/useTheme';
 
 interface ReadinessBarProps {
   value: number;
 }
 
 export function ReadinessBar({ value }: ReadinessBarProps) {
+  const theme = useTheme();
+  const styles = createStyles(theme);
   const safeValue = Math.min(100, Math.max(0, Math.round(value)));
   const progressStyle = StyleSheet.create({
     fill: {
@@ -31,33 +34,34 @@ export function ReadinessBar({ value }: ReadinessBarProps) {
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    gap: spacing.sm,
-  },
-  labelRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-  },
-  label: {
-    color: colors.text,
-    fontSize: typography.body,
-    fontWeight: '600',
-  },
-  value: {
-    color: colors.primary,
-    fontSize: typography.body,
-    fontWeight: '700',
-  },
-  track: {
-    backgroundColor: colors.primaryMuted,
-    borderRadius: radius.sm,
-    height: 10,
-    overflow: 'hidden',
-  },
-  fill: {
-    backgroundColor: colors.primary,
-    borderRadius: radius.sm,
-    height: '100%',
-  },
-});
+const createStyles = (theme: Theme) =>
+  StyleSheet.create({
+    container: {
+      gap: spacing.sm,
+    },
+    labelRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+    },
+    label: {
+      color: theme.colors.textPrimary,
+      fontSize: typography.body.fontSize,
+      fontWeight: '600',
+    },
+    value: {
+      color: theme.colors.accent,
+      fontSize: typography.body.fontSize,
+      fontWeight: '700',
+    },
+    track: {
+      backgroundColor: theme.colors.accentMuted,
+      borderRadius: radii.sm,
+      height: 10,
+      overflow: 'hidden',
+    },
+    fill: {
+      backgroundColor: theme.colors.accent,
+      borderRadius: radii.sm,
+      height: '100%',
+    },
+  });
