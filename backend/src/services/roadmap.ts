@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 
+import { findTargetRole } from '../data/targets.js';
 import { createGeminiJsonGenerator, GEMINI_MODEL } from './gemini.js';
 
 const CONTROL_CHARACTERS = /[\u0000-\u001f\u007f]/u;
@@ -11,7 +12,7 @@ const VERBS = new Set<string>(VERB_OPTIONS);
 
 export interface RoadmapInput {
   experience: string;
-  targetRole: { title: string; employer?: string };
+  targetRole: { id?: string; title: string; employer?: string };
   targetIndustry?: string;
 }
 
@@ -69,6 +70,10 @@ export const normalizeRoadmapInput = (value: unknown): RoadmapInput => {
 
   const experience = readString(value.experience, 'experience', 4000, true);
   const title = readString(value.targetRole.title, 'targetRole.title', 120, true);
+  const id = value.targetRole.id === undefined
+    ? undefined : readString(value.targetRole.id, 'targetRole.id', 80, true);
+  const definition = id === undefined ? undefined : findTargetRole(id);
+  if (id !== undefined && !definition) throw new RoadmapValidationError('Unknown target role');
   const employer = value.targetRole.employer === undefined
     ? '' : readString(value.targetRole.employer, 'targetRole.employer', 120, false);
   const targetIndustry = value.targetIndustry === undefined
@@ -76,7 +81,7 @@ export const normalizeRoadmapInput = (value: unknown): RoadmapInput => {
 
   return {
     experience,
-    targetRole: { title, ...(employer ? { employer } : {}) },
+    targetRole: { ...(id ? { id } : {}), title: definition?.title ?? title, ...(employer ? { employer } : {}) },
     ...(targetIndustry ? { targetIndustry } : {}),
   };
 };
@@ -142,13 +147,16 @@ export const generateRoadmap = async (
   createId: () => string = randomUUID,
 ): Promise<RoadmapResult> => {
   let titles: string[] | undefined;
+  const roleDefinition = input.targetRole.id ? findTargetRole(input.targetRole.id) : undefined;
   for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
       const response = await generator.generateContent({
       model: GEMINI_MODEL,
       contents: buildRoadmapPrompt(input),
       config: {
-        systemInstruction: SYSTEM_INSTRUCTION,
+        systemInstruction: roleDefinition
+          ? `${SYSTEM_INSTRUCTION}\nRole focus for ${roleDefinition.title}: ${roleDefinition.guidance}`
+          : SYSTEM_INSTRUCTION,
         responseMimeType: 'application/json',
         responseJsonSchema: RESPONSE_SCHEMA,
       },

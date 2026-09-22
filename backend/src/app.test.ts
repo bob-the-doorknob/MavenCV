@@ -18,6 +18,20 @@ const createApp = (dependencies: AppDependencies = {}) => createProductionApp({
 });
 
 describe('Trajectory backend', () => {
+  it('serves the grouped tech role catalog without AI quota', async () => {
+    const response = await request(createApp({ consumeQuota: async () => { throw new Error('should not be called'); } })).get('/api/roles');
+    expect(response.status).toBe(200);
+    expect(response.body.categories).toHaveLength(4);
+    const roles: { id: string; title: string }[] = response.body.categories.flatMap((category: { roles: { id: string; title: string }[] }) => category.roles);
+    expect(roles.map((role) => role.id)).toEqual([
+      'software-engineer', 'frontend-mobile', 'backend-cloud', 'devops-sre', 'cybersecurity', 'embedded-hardware',
+      'data-scientist', 'ml-ai-engineer', 'data-analyst', 'product-manager', 'ui-ux',
+      'business-analyst', 'quant', 'growth-marketing',
+    ]);
+    expect(roles.find((role) => role.id === 'quant')?.title).toBe('Quant / Trading');
+    expect(JSON.stringify(response.body)).not.toContain('guidance');
+  });
+
   it('reports service health', async () => {
     const response = await request(createApp()).get('/health');
 

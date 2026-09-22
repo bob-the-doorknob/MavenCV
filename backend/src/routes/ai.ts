@@ -1,5 +1,6 @@
 import { Router, type Request, type Response } from 'express';
 
+import { publicTargetRoleCategories } from '../data/targets.js';
 import { authenticateAuthorization, AuthenticationError, type RequestAuthenticator } from '../security/auth.js';
 import { consumeAiQuota, QuotaStoreError, type AiRateLimiter } from '../security/rateLimit.js';
 import {
@@ -52,6 +53,10 @@ export const createAiRouter = ({
   consumeQuota = consumeAiQuota,
 }: AiRouterDependencies = {}): Router => {
   const router = Router();
+
+  router.get('/roles', (_request, response) => {
+    response.status(200).json({ categories: publicTargetRoleCategories });
+  });
 
   const handlePost = <TInput, TResult>(
     normalize: (value: unknown) => TInput,
