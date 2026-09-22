@@ -2,9 +2,16 @@ import { describe, expect, it, vi } from 'vitest';
 
 vi.mock('./anonymousAuth', () => ({ getAnonymousIdToken: async () => 'test-id-token' }));
 
-import { postJson } from './api';
+import { getJson, postJson } from './api';
 
 describe('backend API client', () => {
+  it('loads the public role catalog without starting Firebase authentication', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ categories: [] }) });
+    vi.stubGlobal('fetch', fetchMock);
+    await expect(getJson('/api/roles')).resolves.toEqual({ categories: [] });
+    expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining('/api/roles'));
+  });
+
   it('sends the Firebase ID token on AI requests', async () => {
     const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ tasks: [] }) });
     vi.stubGlobal('fetch', fetchMock);

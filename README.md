@@ -55,9 +55,8 @@ without making a live Gemini request. `npm run start:backend` loads the root
 - Andrew's project partner owns the React Native frontend and connects it to the
   documented backend contracts.
 
-The backend can be implemented and tested without the frontend. End-to-end
-screen behavior, saved mobile preferences, navigation, and device UX require
-the frontend integration.
+The backend can be implemented and tested without the frontend. Device UX still
+needs verification on a simulator or phone.
 
 ## Roadmap API and frontend handoff
 
@@ -70,19 +69,39 @@ API key and enable the Anonymous provider in Firebase Authentication. The key is
 public configuration; keep `GEMINI_API_KEY` on the backend. Both routes share
 10 requests per user per 60 seconds by default. The app still needs UI handling
 for `401` and `429` when the generation screens are built.
-The daily checklist stays local and makes no AI requests.
+The daily checklist stays local and makes no AI requests. The setup screen loads
+the public `GET /api/roles` catalog, asks for one role and current experience,
+then generates and saves that role's roadmap. The catalog has 14 roles in four
+categories; the backend returns only role labels in the catalog and inserts role guidance into the
+shared roadmap system instruction. For example, `quant` focuses on statistics,
+backtesting, and risk. One active role is supported in this setup flow.
+
+Setup also accepts a PDF CV up to 2 MB. The authenticated `POST /api/cv-profile`
+route accepts `{ "pdfBase64": "...", "targetRoleId": "quant" }` and returns an
+editable `experience` summary plus up to three `questions`. The mobile app asks
+the student to confirm or edit the extracted experience before requesting a
+roadmap. Manual experience entry remains available. The PDF is sent inline to
+Gemini with `store: false`; the backend does not save it. This extraction uses
+the shared AI quota and does not determine readiness or claim a skill level.
+
+Set `EXPO_PUBLIC_API_URL` to a backend address reachable from the device. The
+default `localhost` URL works only when the mobile runtime can reach the backend
+on the same host.
 
 `POST /api/roadmap` accepts:
 
 ```json
 {
   "experience": "Built two TypeScript APIs and used PostgreSQL in coursework.",
-  "targetRole": { "title": "Backend Engineer", "employer": "Optional employer" },
+  "targetRole": { "id": "backend-cloud", "title": "Backend / Cloud Engineer", "employer": "Optional employer" },
   "targetIndustry": "Fintech"
 }
 ```
 
-`employer` and `targetIndustry` are optional. A successful response has `tasks`
+`id`, `employer`, and `targetIndustry` are optional for legacy API callers. The
+mobile app sends the selected catalog `id`; the backend validates it and uses
+the catalog's canonical title even if a different title was submitted. Unknown
+IDs return `400 INVALID_ROADMAP_INPUT`. A successful response has `tasks`
 with 5–7 entries, each containing a server-generated `id`, a measurable
 `title`, a positive integer `weight`, and `status: "not_started"`. Weights sum
 to 100 and the tasks map directly to the mobile `RoadmapTask` type. Invalid

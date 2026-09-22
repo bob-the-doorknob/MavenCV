@@ -14,6 +14,14 @@ export class ApiResponseError extends Error {
   }
 }
 
+export const getJson = async <TResponse>(path: `/${string}`): Promise<TResponse> => {
+  const response = await fetch(`${apiUrl}${path}`);
+  if (!response.ok) {
+    throw new ApiResponseError(response.status, `Backend request failed (${response.status})`);
+  }
+  return (await response.json()) as TResponse;
+};
+
 export const postJson = async <TRequest, TResponse>(
   path: `/${string}`,
   body: TRequest,
