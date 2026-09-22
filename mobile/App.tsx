@@ -8,10 +8,12 @@ import { RoadmapPreview } from './src/screens/onboarding/RoadmapPreview';
 import { processPendingCvEntries } from './src/services/cvQueue';
 import { configureRevenueCat } from './src/services/revenueCat';
 import { useAppStore } from './src/store/useAppStore';
+import { useAppFonts } from './src/theme/fonts';
 import { useTheme } from './src/theme/useTheme';
 
 export default function App() {
   const theme = useTheme();
+  const fontsReady = useAppFonts();
   const hasTargets = useAppStore((state) => state.targets.length > 0);
 
   useEffect(() => {
@@ -51,9 +53,9 @@ export default function App() {
           this wrapper only sets the background so there's no gap around them. */}
       <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
         <StatusBar style={theme.mode === 'dark' ? 'light' : 'dark'} />
-        {/* TEMPORARY: RoadmapPreview stands in for the real home/roadmap screen
-            until one exists. */}
-        {hasTargets ? <RoadmapPreview /> : <OnboardingFlow />}
+        {/* Nothing renders until the fonts are in — typography is the loudest
+            part of this design and swapping it in late looks broken. */}
+        {!fontsReady ? null : hasTargets ? <RoadmapPreview /> : <OnboardingFlow />}
       </View>
     </SafeAreaProvider>
   );

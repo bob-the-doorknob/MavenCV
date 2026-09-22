@@ -36,8 +36,8 @@ const createStyles = (theme: Theme) =>
     },
     panel: {
       backgroundColor: theme.colors.surface,
-      borderTopLeftRadius: radii.lg,
-      borderTopRightRadius: radii.lg,
+      borderTopLeftRadius: radii.header,
+      borderTopRightRadius: radii.header,
       gap: spacing.md,
       padding: spacing.xl,
     },

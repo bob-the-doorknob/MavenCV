@@ -6,7 +6,7 @@ import { useTheme } from '../../theme/useTheme';
 
 interface CardProps {
   children: React.ReactNode;
-  /** Uses the slightly elevated surface tint instead of the base surface. */
+  /** Uses the wider radius — for the highlighted current task. */
   raised?: boolean;
   style?: StyleProp<ViewStyle>;
 }
@@ -23,11 +23,12 @@ const createStyles = (theme: Theme) =>
     card: {
       backgroundColor: theme.colors.surface,
       borderColor: theme.colors.border,
-      borderRadius: radii.md,
+      borderRadius: radii.lg,
       borderWidth: 1,
       padding: spacing.lg,
     },
     raised: {
       backgroundColor: theme.colors.surfaceRaised,
+      borderRadius: radii.xl,
     },
   });

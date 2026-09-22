@@ -8,7 +8,51 @@ describe('mapRoadmapResponse', () => {
       tasks: [{ id: 't1', title: 'Build 1 thing', weight: 34, status: 'not_started' }],
     });
 
-    expect(result).toEqual([{ id: 't1', title: 'Build 1 thing', doneWhen: '', priority: 2, status: 'not_started' }]);
+    expect(result).toEqual([
+      { id: 't1', title: 'Build 1 thing', doneWhen: '', steps: [], priority: 2, status: 'not_started' },
+    ]);
+  });
+
+  it('omits why and returns no steps when the backend sends neither', () => {
+    const [mapped] = mapRoadmapResponse({ tasks: [{ id: 't1', title: 'Build 1 thing' }] });
+
+    expect(mapped?.steps).toEqual([]);
+    expect(mapped).not.toHaveProperty('why');
+  });
+
+  it('maps why and turns step strings into steps with generated ids', () => {
+    const [mapped] = mapRoadmapResponse({
+      tasks: [
+        {
+          id: 't1',
+          title: 'Build 1 thing',
+          why: '  Recruiters screen for finished work.  ',
+          steps: ['Set up the repository', '  Write the README  '],
+        },
+      ],
+    });
+
+    expect(mapped?.why).toBe('Recruiters screen for finished work.');
+    expect(mapped?.steps).toEqual([
+      { id: expect.any(String), title: 'Set up the repository', done: false },
+      { id: expect.any(String), title: 'Write the README', done: false },
+    ]);
+    expect(mapped?.steps[0]?.id).not.toBe(mapped?.steps[1]?.id);
+  });
+
+  it('ignores a blank why and non-string or empty steps', () => {
+    const [mapped] = mapRoadmapResponse({
+      tasks: [{ id: 't1', title: 'Build 1 thing', why: '   ', steps: ['Keep this', 42, '', null] }],
+    });
+
+    expect(mapped).not.toHaveProperty('why');
+    expect(mapped?.steps).toEqual([{ id: expect.any(String), title: 'Keep this', done: false }]);
+  });
+
+  it('returns no steps when steps is not an array', () => {
+    const [mapped] = mapRoadmapResponse({ tasks: [{ id: 't1', title: 'Build 1 thing', steps: 'nope' }] });
+
+    expect(mapped?.steps).toEqual([]);
   });
 
   it('maps every task in the array', () => {

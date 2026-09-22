@@ -3,11 +3,22 @@ import type { Level } from '../data/roles';
 export type TaskStatus = 'not_started' | 'in_progress' | 'done';
 export type TaskPriority = 1 | 2 | 3;
 
+/** A sub-step of a task. Steps are guidance only — they never move the readiness score. */
+export interface TaskStep {
+  id: string;
+  title: string;
+  done: boolean;
+}
+
 export interface RoadmapTask {
   id: string;
   title: string;
   /** The verifiable condition that marks this task complete. */
   doneWhen: string;
+  /** Why this task matters for the target role and level. */
+  why?: string;
+  /** Empty for tasks persisted before steps existed. */
+  steps: TaskStep[];
   priority: TaskPriority;
   status: TaskStatus;
   startedAt?: string;
@@ -27,6 +38,9 @@ export interface Target {
   experience: string;
   createdAt: string;
   roadmap: RoadmapTask[];
+  /** At most 2 not-done task ids. Empty for targets persisted before focus existed. */
+  focusTaskIds: string[];
+  lastCheckInAt?: string;
 }
 
 export type CvEntryStatus = 'pending' | 'ready' | 'failed';

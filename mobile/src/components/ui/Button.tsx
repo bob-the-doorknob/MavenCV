@@ -1,8 +1,10 @@
 import { useMemo } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, type StyleProp, type ViewStyle } from 'react-native';
+import Animated from 'react-native-reanimated';
 
-import { radii, spacing, typography, type Theme } from '../../theme/tokens';
+import { minTouchTarget, radii, spacing, typography, type Theme } from '../../theme/tokens';
 import { useTheme } from '../../theme/useTheme';
+import { usePressScale } from './usePressScale';
 
 export type ButtonVariant = 'primary' | 'secondary' | 'ghost';
 
@@ -25,30 +27,31 @@ export function Button({
 }: ButtonProps) {
   const theme = useTheme();
   const styles = useMemo(() => createStyles(theme), [theme]);
+  const press = usePressScale();
   const isDisabled = disabled || loading;
 
   return (
-    <Pressable
-      accessibilityLabel={label}
-      accessibilityRole="button"
-      accessibilityState={{ disabled: isDisabled, busy: loading }}
-      android_ripple={{ color: theme.colors.border }}
-      disabled={isDisabled}
-      onPress={onPress}
-      style={({ pressed }) => [
-        styles.base,
-        styles[variant],
-        isDisabled && styles.disabled,
-        pressed && !isDisabled && styles.pressed,
-        style,
-      ]}
-    >
-      {loading ? (
-        <ActivityIndicator color={variant === 'primary' ? theme.colors.onAccent : theme.colors.textPrimary} />
-      ) : (
-        <Text style={[styles.label, styles[`${variant}Label`]]}>{label}</Text>
-      )}
-    </Pressable>
+    <Animated.View style={[press.style, style]}>
+      <Pressable
+        accessibilityLabel={label}
+        accessibilityRole="button"
+        accessibilityState={{ disabled: isDisabled, busy: loading }}
+        android_ripple={{ color: theme.colors.border }}
+        disabled={isDisabled}
+        onPress={onPress}
+        onPressIn={press.onPressIn}
+        onPressOut={press.onPressOut}
+        style={[styles.base, styles[variant], isDisabled && styles.disabled]}
+      >
+        {loading ? (
+          <ActivityIndicator
+            color={variant === 'primary' ? theme.colors.onPrimaryButton : theme.colors.textPrimary}
+          />
+        ) : (
+          <Text style={[styles.label, styles[`${variant}Label`]]}>{label}</Text>
+        )}
+      </Pressable>
+    </Animated.View>
   );
 }
 
@@ -58,12 +61,12 @@ const createStyles = (theme: Theme) =>
       alignItems: 'center',
       borderRadius: radii.md,
       justifyContent: 'center',
-      minHeight: 48,
-      paddingHorizontal: spacing.lg,
+      minHeight: minTouchTarget + 6,
+      paddingHorizontal: spacing.xl,
       paddingVertical: spacing.md,
     },
     primary: {
-      backgroundColor: theme.colors.accent,
+      backgroundColor: theme.colors.primaryButton,
     },
     secondary: {
       backgroundColor: theme.colors.surface,
@@ -76,16 +79,15 @@ const createStyles = (theme: Theme) =>
     disabled: {
       opacity: 0.4,
     },
-    pressed: {
-      opacity: 0.85,
-    },
     label: {
-      fontFamily: typography.body.fontFamily,
-      fontSize: typography.body.fontSize,
-      fontWeight: '700',
+      fontFamily: typography.label.fontFamily,
+      fontSize: typography.label.fontSize,
+      fontWeight: typography.label.fontWeight,
+      letterSpacing: typography.label.letterSpacing,
+      lineHeight: typography.label.lineHeight,
     },
     primaryLabel: {
-      color: theme.colors.onAccent,
+      color: theme.colors.onPrimaryButton,
     },
     secondaryLabel: {
       color: theme.colors.textPrimary,

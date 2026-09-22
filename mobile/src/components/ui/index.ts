@@ -1,8 +1,14 @@
 export { Button, type ButtonVariant } from './Button';
 export { Card } from './Card';
-export { Chip } from './Chip';
+export { CategoryChip } from './CategoryChip';
+export { Chip, type ChipTone } from './Chip';
 export { EmptyState } from './EmptyState';
+export { MilestonePath, type MilestoneItem } from './MilestonePath';
 export { ProgressBar } from './ProgressBar';
+export { ScoreArc } from './ScoreArc';
+export { SectionLabel } from './SectionLabel';
 export { Sheet } from './Sheet';
+export { StatusNode } from './StatusNode';
 export { TextArea } from './TextArea';
 export { TextField } from './TextField';
+export { usePressScale } from './usePressScale';

@@ -1,8 +1,9 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { radii, spacing, typography, type Theme } from '../../theme/tokens';
 import { useTheme } from '../../theme/useTheme';
+import { SectionLabel } from './SectionLabel';
 
 interface TextAreaProps {
   value: string;
@@ -26,19 +27,22 @@ export function TextArea({
 }: TextAreaProps) {
   const theme = useTheme();
   const styles = useMemo(() => createStyles(theme), [theme]);
+  const [focused, setFocused] = useState(false);
   const atLimit = value.length >= maxLength;
 
   return (
     <View style={styles.container}>
-      {label ? <Text style={styles.label}>{label}</Text> : null}
+      {label ? <SectionLabel>{label}</SectionLabel> : null}
       <TextInput
         maxLength={maxLength}
         multiline
         numberOfLines={numberOfLines}
+        onBlur={() => setFocused(false)}
         onChangeText={onChangeText}
+        onFocus={() => setFocused(true)}
         placeholder={placeholder}
         placeholderTextColor={theme.colors.textMuted}
-        style={styles.input}
+        style={[styles.input, focused && styles.inputFocused]}
         textAlignVertical="top"
         value={value}
       />
@@ -54,13 +58,7 @@ export function TextArea({
 const createStyles = (theme: Theme) =>
   StyleSheet.create({
     container: {
-      gap: spacing.xs,
-    },
-    label: {
-      color: theme.colors.textSecondary,
-      fontFamily: typography.caption.fontFamily,
-      fontSize: typography.caption.fontSize,
-      fontWeight: typography.caption.fontWeight,
+      gap: spacing.sm,
     },
     input: {
       backgroundColor: theme.colors.surface,
@@ -71,14 +69,19 @@ const createStyles = (theme: Theme) =>
       fontFamily: typography.body.fontFamily,
       fontSize: typography.body.fontSize,
       lineHeight: typography.body.lineHeight,
-      minHeight: 96,
-      padding: spacing.md,
+      minHeight: 112,
+      paddingHorizontal: spacing.lg,
+      paddingVertical: spacing.md,
+    },
+    inputFocused: {
+      borderColor: theme.colors.textPrimary,
     },
     count: {
       alignSelf: 'flex-end',
       color: theme.colors.textMuted,
       fontFamily: typography.caption.fontFamily,
       fontSize: typography.caption.fontSize,
+      lineHeight: typography.caption.lineHeight,
     },
     countAtLimit: {
       color: theme.colors.danger,

@@ -15,6 +15,7 @@ This repository contains the source code for **Maven**, a mobile app built for t
 ### Do
 - Use **TypeScript** with strict types. No `any`.
 - Use **Expo (Managed Workflow)** and React Native core components.
+- **All UI work must follow mobile/DESIGN.md.**
 - Use **Zustand** for global client state combined with **AsyncStorage** for persistent local storage.
 - Calculate the **Readiness Score purely with arithmetic** (sum of weights of done tasks / sum of weights of all tasks * 100, rounded, 0 for an empty roadmap). Do NOT use AI for math.
 - Ensure all AI-generated roadmap items follow the strict format: `[Verb] + [Measurable Quantity/Artifact] + [Topic]`.

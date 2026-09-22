@@ -1,8 +1,9 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { StyleSheet, Text, TextInput, View } from 'react-native';
 
-import { radii, spacing, typography, type Theme } from '../../theme/tokens';
+import { minTouchTarget, radii, spacing, typography, type Theme } from '../../theme/tokens';
 import { useTheme } from '../../theme/useTheme';
+import { SectionLabel } from './SectionLabel';
 
 interface TextFieldProps {
   value: string;
@@ -28,19 +29,27 @@ export function TextField({
 }: TextFieldProps) {
   const theme = useTheme();
   const styles = useMemo(() => createStyles(theme), [theme]);
+  const [focused, setFocused] = useState(false);
   const atLimit = maxLength !== undefined && value.length >= maxLength;
 
   return (
     <View style={styles.container}>
-      {label ? <Text style={styles.label}>{label}</Text> : null}
+      {label ? <SectionLabel>{label}</SectionLabel> : null}
       <TextInput
         accessibilityLabel={accessibilityLabel ?? label}
         editable={!disabled}
         maxLength={maxLength}
+        onBlur={() => setFocused(false)}
         onChangeText={onChangeText}
+        onFocus={() => setFocused(true)}
         placeholder={placeholder}
         placeholderTextColor={theme.colors.textMuted}
-        style={[styles.input, Boolean(error) && styles.inputError, disabled && styles.inputDisabled]}
+        style={[
+          styles.input,
+          focused && styles.inputFocused,
+          Boolean(error) && styles.inputError,
+          disabled && styles.inputDisabled,
+        ]}
         value={value}
       />
       {error ? <Text style={styles.error}>{error}</Text> : null}
@@ -56,13 +65,7 @@ export function TextField({
 const createStyles = (theme: Theme) =>
   StyleSheet.create({
     container: {
-      gap: spacing.xs,
-    },
-    label: {
-      color: theme.colors.textSecondary,
-      fontFamily: typography.caption.fontFamily,
-      fontSize: typography.caption.fontSize,
-      fontWeight: typography.caption.fontWeight,
+      gap: spacing.sm,
     },
     input: {
       backgroundColor: theme.colors.surface,
@@ -72,7 +75,12 @@ const createStyles = (theme: Theme) =>
       color: theme.colors.textPrimary,
       fontFamily: typography.body.fontFamily,
       fontSize: typography.body.fontSize,
-      padding: spacing.md,
+      minHeight: minTouchTarget + 6,
+      paddingHorizontal: spacing.lg,
+      paddingVertical: spacing.md,
+    },
+    inputFocused: {
+      borderColor: theme.colors.textPrimary,
     },
     inputError: {
       borderColor: theme.colors.danger,
@@ -84,12 +92,14 @@ const createStyles = (theme: Theme) =>
       color: theme.colors.danger,
       fontFamily: typography.caption.fontFamily,
       fontSize: typography.caption.fontSize,
+      lineHeight: typography.caption.lineHeight,
     },
     count: {
       alignSelf: 'flex-end',
       color: theme.colors.textMuted,
       fontFamily: typography.caption.fontFamily,
       fontSize: typography.caption.fontSize,
+      lineHeight: typography.caption.lineHeight,
     },
     countAtLimit: {
       color: theme.colors.danger,

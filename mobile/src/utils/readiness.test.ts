@@ -7,6 +7,7 @@ const task = (overrides: Partial<RoadmapTask> = {}): RoadmapTask => ({
   id: 'task-1',
   title: 'Build 1 portfolio project',
   doneWhen: 'Project is deployed and linked from the CV',
+  steps: [],
   priority: 1,
   status: 'not_started',
   ...overrides,

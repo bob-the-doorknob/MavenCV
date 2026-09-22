@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // The real module reaches for `window`, which doesn't exist under vitest's
 // node environment. Persist middleware only needs get/set/remove to resolve.
@@ -17,14 +17,22 @@ vi.mock('@react-native-async-storage/async-storage', () => {
   };
 });
 
-import type { CvEntry, RoadmapTask, Target } from '../types';
+import type { CvEntry, RoadmapTask, Target, TaskStep } from '../types';
 import { calculateReadiness } from '../utils/readiness';
-import { migrate, useAppStore } from './useAppStore';
+import { migrate, selectFocusTasks, selectIsCheckInDue, useAppStore } from './useAppStore';
+
+const step = (overrides: Partial<TaskStep> = {}): TaskStep => ({
+  id: 'step-1',
+  title: 'Set up the repository',
+  done: false,
+  ...overrides,
+});
 
 const task = (overrides: Partial<RoadmapTask> = {}): RoadmapTask => ({
   id: 'task-1',
   title: 'Build 1 portfolio project',
   doneWhen: 'Project is deployed and linked from the CV',
+  steps: [],
   priority: 1,
   status: 'not_started',
   ...overrides,
@@ -44,6 +52,7 @@ const fullTarget = (overrides: Partial<Target> = {}): Target => ({
   experience: 'Two class projects in TypeScript.',
   createdAt: '2026-01-01T00:00:00.000Z',
   roadmap: [task()],
+  focusTaskIds: [],
   ...overrides,
 });
 
@@ -269,5 +278,264 @@ describe('migrate', () => {
     expect(warnSpy).toHaveBeenCalledTimes(1);
 
     warnSpy.mockRestore();
+  });
+
+  it('normalizes pre-steps, pre-focus data instead of resetting it', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    // Exactly what v1 wrote: no steps on tasks, no focusTaskIds on targets.
+    const legacy = {
+      targets: [
+        {
+          id: 'target-1',
+          roleId: 'software-engineer',
+          level: 'internship',
+          experience: 'Two class projects in TypeScript.',
+          createdAt: '2026-01-01T00:00:00.000Z',
+          roadmap: [
+            {
+              id: 'task-1',
+              title: 'Build 1 portfolio project',
+              doneWhen: 'Project is deployed and linked from the CV',
+              priority: 1,
+              status: 'not_started',
+            },
+          ],
+        },
+      ],
+      activeTargetId: 'target-1',
+      cvEntries: [],
+    };
+
+    const migrated = migrate(legacy);
+
+    expect(migrated.targets[0]?.focusTaskIds).toEqual([]);
+    expect(migrated.targets[0]?.roadmap[0]?.steps).toEqual([]);
+    expect(migrated.targets[0]?.roadmap[0]?.title).toBe('Build 1 portfolio project');
+    expect(warnSpy).not.toHaveBeenCalled();
+
+    warnSpy.mockRestore();
+  });
+
+  it('keeps steps, why, focusTaskIds, and lastCheckInAt that are already persisted', () => {
+    const current = {
+      targets: [
+        fullTarget({
+          focusTaskIds: ['task-1'],
+          lastCheckInAt: '2026-02-01T00:00:00.000Z',
+          roadmap: [
+            task({
+              why: 'Recruiters screen for finished work.',
+              steps: [{ id: 'step-1', title: 'Write the README', done: true }],
+            }),
+          ],
+        }),
+      ],
+      activeTargetId: 'target-1',
+      cvEntries: [],
+    };
+
+    expect(migrate(current)).toEqual(current);
+  });
+
+  it('resets when steps are present but wrong-typed', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const broken = {
+      targets: [{ ...fullTarget(), roadmap: [{ ...task(), steps: ['not an object'] }] }],
+      activeTargetId: 'target-1',
+      cvEntries: [],
+    };
+
+    expect(migrate(broken)).toEqual({ targets: [], activeTargetId: null, cvEntries: [] });
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+
+    warnSpy.mockRestore();
+  });
+});
+
+describe('step actions', () => {
+  const seed = (): void => {
+    const { addTarget } = useAppStore.getState();
+    addTarget({ ...baseTargetInput, roadmap: [task({ steps: [step()] })] });
+  };
+
+  const stepsOf = (taskId = 'task-1'): TaskStep[] =>
+    useAppStore.getState().targets[0]?.roadmap.find((candidate) => candidate.id === taskId)?.steps ?? [];
+
+  it('toggles a step both ways without touching the task status', () => {
+    seed();
+
+    useAppStore.getState().toggleStep('task-1', 'step-1');
+    expect(stepsOf()[0]?.done).toBe(true);
+
+    useAppStore.getState().toggleStep('task-1', 'step-1');
+    expect(stepsOf()[0]?.done).toBe(false);
+    expect(useAppStore.getState().targets[0]?.roadmap[0]?.status).toBe('not_started');
+  });
+
+  it('adds a trimmed step and ignores a blank title', () => {
+    seed();
+
+    useAppStore.getState().addStep('task-1', '  Draft the README  ');
+    expect(stepsOf()).toHaveLength(2);
+    expect(stepsOf()[1]).toMatchObject({ title: 'Draft the README', done: false });
+
+    useAppStore.getState().addStep('task-1', '   ');
+    expect(stepsOf()).toHaveLength(2);
+  });
+
+  it('removes a step', () => {
+    seed();
+
+    useAppStore.getState().removeStep('task-1', 'step-1');
+
+    expect(stepsOf()).toEqual([]);
+  });
+
+  it('leaves the readiness score alone — steps are guidance, not progress', () => {
+    seed();
+    const before = calculateReadiness(useAppStore.getState().targets[0]?.roadmap ?? []);
+
+    useAppStore.getState().toggleStep('task-1', 'step-1');
+    useAppStore.getState().addStep('task-1', 'Another step');
+
+    expect(calculateReadiness(useAppStore.getState().targets[0]?.roadmap ?? [])).toBe(before);
+  });
+
+  it('ignores a step action for a task that is not in the active roadmap', () => {
+    seed();
+
+    useAppStore.getState().toggleStep('missing-task', 'step-1');
+
+    expect(stepsOf()[0]?.done).toBe(false);
+  });
+});
+
+describe('setFocusTasks', () => {
+  const focusIds = (): string[] => useAppStore.getState().targets[0]?.focusTaskIds ?? [];
+
+  const seedThree = (): void => {
+    const { addTarget } = useAppStore.getState();
+    addTarget({
+      ...baseTargetInput,
+      roadmap: [task({ id: 'a' }), task({ id: 'b' }), task({ id: 'c' })],
+    });
+  };
+
+  it('keeps at most two tasks', () => {
+    seedThree();
+
+    useAppStore.getState().setFocusTasks(['a', 'b', 'c']);
+
+    expect(focusIds()).toEqual(['a', 'b']);
+  });
+
+  it('drops done tasks and unknown ids', () => {
+    const { addTarget } = useAppStore.getState();
+    addTarget({
+      ...baseTargetInput,
+      roadmap: [task({ id: 'a', status: 'done' }), task({ id: 'b' })],
+    });
+
+    useAppStore.getState().setFocusTasks(['a', 'ghost', 'b']);
+
+    expect(focusIds()).toEqual(['b']);
+  });
+
+  it('deduplicates ids', () => {
+    seedThree();
+
+    useAppStore.getState().setFocusTasks(['a', 'a', 'b']);
+
+    expect(focusIds()).toEqual(['a', 'b']);
+  });
+
+  it('drops a focus task when it is completed', () => {
+    seedThree();
+    useAppStore.getState().setFocusTasks(['a', 'b']);
+
+    useAppStore.getState().completeTask('a', 'Shipped it.');
+
+    expect(focusIds()).toEqual(['b']);
+  });
+
+  it('drops a focus task when it is deleted', () => {
+    seedThree();
+    useAppStore.getState().setFocusTasks(['a', 'b']);
+
+    useAppStore.getState().deleteTask('b');
+
+    expect(focusIds()).toEqual(['a']);
+  });
+});
+
+describe('selectFocusTasks', () => {
+  it('returns the focused tasks in the order they were chosen', () => {
+    const { addTarget, setFocusTasks } = useAppStore.getState();
+    addTarget({ ...baseTargetInput, roadmap: [task({ id: 'a' }), task({ id: 'b' })] });
+    setFocusTasks(['b', 'a']);
+
+    expect(selectFocusTasks(useAppStore.getState()).map((focused) => focused.id)).toEqual(['b', 'a']);
+  });
+
+  it('returns nothing when there is no active target', () => {
+    expect(selectFocusTasks(useAppStore.getState())).toEqual([]);
+  });
+});
+
+describe('check-ins', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  const seedWithFocus = (createdAt: string): void => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(createdAt));
+    const { addTarget, setFocusTasks } = useAppStore.getState();
+    addTarget({ ...baseTargetInput, roadmap: [task({ id: 'a' })] });
+    setFocusTasks(['a']);
+  };
+
+  it('is not due before 7 days have passed since the target was created', () => {
+    seedWithFocus('2026-03-01T00:00:00.000Z');
+
+    vi.setSystemTime(new Date('2026-03-07T23:59:00.000Z'));
+
+    expect(selectIsCheckInDue(useAppStore.getState())).toBe(false);
+  });
+
+  it('is due exactly 7 days after creation when there has never been a check-in', () => {
+    seedWithFocus('2026-03-01T00:00:00.000Z');
+
+    vi.setSystemTime(new Date('2026-03-08T00:00:00.000Z'));
+
+    expect(selectIsCheckInDue(useAppStore.getState())).toBe(true);
+  });
+
+  it('recordCheckIn pushes the next check-in out by another 7 days', () => {
+    seedWithFocus('2026-03-01T00:00:00.000Z');
+    vi.setSystemTime(new Date('2026-03-10T00:00:00.000Z'));
+    expect(selectIsCheckInDue(useAppStore.getState())).toBe(true);
+
+    useAppStore.getState().recordCheckIn();
+
+    expect(useAppStore.getState().targets[0]?.lastCheckInAt).toBe('2026-03-10T00:00:00.000Z');
+    expect(selectIsCheckInDue(useAppStore.getState())).toBe(false);
+
+    vi.setSystemTime(new Date('2026-03-17T00:00:00.000Z'));
+    expect(selectIsCheckInDue(useAppStore.getState())).toBe(true);
+  });
+
+  it('is never due for a target with nothing in focus', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-03-01T00:00:00.000Z'));
+    useAppStore.getState().addTarget({ ...baseTargetInput, roadmap: [task({ id: 'a' })] });
+
+    vi.setSystemTime(new Date('2026-06-01T00:00:00.000Z'));
+
+    expect(selectIsCheckInDue(useAppStore.getState())).toBe(false);
+  });
+
+  it('is never due when there is no active target', () => {
+    expect(selectIsCheckInDue(useAppStore.getState(), Date.parse('2026-06-01T00:00:00.000Z'))).toBe(false);
   });
 });
