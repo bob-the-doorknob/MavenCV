@@ -29,7 +29,7 @@ import { countSteps, orderRoadmap, taskMetaLine } from '../../utils/groupTasks';
 import { categoryKeyForRole } from '../../utils/roleCategory';
 import { fits, scheduleLabel } from '../../utils/schedule';
 import { formatDueDate, formatMonthYear, formatWeeksLeft } from '../../utils/targetDate';
-import type { RoadmapTask, Target } from '../../types';
+import type { RoadmapTask } from '../../types';
 import { AddMilestoneSheet } from './AddMilestoneSheet';
 import { DoesNotFitSheet } from './DoesNotFitSheet';
 import { FocusPickerSheet } from './FocusPickerSheet';
@@ -42,20 +42,6 @@ const SCORE_LABELS = {
   internship: 'ready for internships',
   'entry-level': 'ready for entry-level roles',
 } as const;
-
-const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'] as const;
-
-const CHECK_IN_INTERVAL_DAYS = 7;
-
-/** The weekday the next check-in falls on, a week after the last one. */
-const nextCheckInLabel = (target: Target): string => {
-  const since = Date.parse(target.lastCheckInAt ?? target.createdAt);
-  if (Number.isNaN(since)) {
-    return 'Check-in weekly';
-  }
-  const next = new Date(since + CHECK_IN_INTERVAL_DAYS * 24 * 60 * 60 * 1_000);
-  return `Check-in ${WEEKDAYS[next.getDay()] ?? 'weekly'}`;
-};
 
 const handleResetPress = (): void => {
   Alert.alert(
@@ -193,8 +179,8 @@ export function RoadmapScreen() {
           <>
             <View style={styles.section}>
               <View style={styles.sectionHeader}>
-                <SectionLabel>This week&apos;s focus</SectionLabel>
-                {target ? <Text style={styles.checkIn}>{nextCheckInLabel(target)}</Text> : null}
+                <SectionLabel>Working on now</SectionLabel>
+                <Text style={styles.focusLimit}>Up to 2 at a time</Text>
               </View>
               <Card>
                 {focusTasks.length > 0 ? (
@@ -406,7 +392,7 @@ function FocusPromptRow({ onPress }: { onPress: () => void }) {
   return (
     <Animated.View style={press.style}>
       <Pressable
-        accessibilityLabel="Pick up to 2 tasks to focus on this week"
+        accessibilityLabel="Pick up to 2 milestones you're working on now"
         accessibilityRole="button"
         android_ripple={{ color: theme.colors.border }}
         onPress={onPress}
@@ -415,7 +401,7 @@ function FocusPromptRow({ onPress }: { onPress: () => void }) {
         style={styles.focusRow}
       >
         <StatusNode backgroundColor={theme.colors.surface} status="not_started" />
-        <Text style={styles.focusPrompt}>Pick up to 2 tasks to focus on this week</Text>
+        <Text style={styles.focusPrompt}>Pick up to 2 milestones you&apos;re working on now</Text>
       </Pressable>
     </Animated.View>
   );
@@ -523,7 +509,7 @@ const createStyles = (theme: Theme) =>
       fontSize: typography.caption.fontSize,
       fontWeight: '600',
     },
-    checkIn: {
+    focusLimit: {
       color: theme.colors.textMuted,
       fontFamily: typography.caption.fontFamily,
       fontSize: typography.caption.fontSize,

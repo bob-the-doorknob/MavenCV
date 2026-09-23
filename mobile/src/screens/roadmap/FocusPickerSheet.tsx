@@ -49,8 +49,11 @@ export function FocusPickerSheet({ visible, onClose, tasks, selectedIds }: Focus
   };
 
   return (
-    <Sheet onClose={onClose} title="This week's focus" visible={visible}>
-      <Text style={styles.hint}>Pick up to {MAX_FOCUS_TASKS} tasks to focus on this week.</Text>
+    <Sheet onClose={onClose} title="What are you working on now?" visible={visible}>
+      <Text style={styles.hint}>
+        Milestones take a few weeks each — pick what you&apos;re actively doing. Up to{' '}
+        {MAX_FOCUS_TASKS}.
+      </Text>
       <ScrollView style={styles.list}>
         {openTasks.map((task) => (
           <FocusRow
@@ -62,10 +65,10 @@ export function FocusPickerSheet({ visible, onClose, tasks, selectedIds }: Focus
           />
         ))}
         {openTasks.length === 0 ? (
-          <Text style={styles.hint}>Every task is done — nothing left to focus on.</Text>
+          <Text style={styles.hint}>Every milestone is done — nothing left to work on.</Text>
         ) : null}
       </ScrollView>
-      <Button label="Save focus" onPress={save} />
+      <Button label="Save" onPress={save} />
     </Sheet>
   );
 }

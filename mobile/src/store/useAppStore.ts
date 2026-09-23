@@ -566,6 +566,10 @@ export const useFocusTasks = (): RoadmapTask[] => useAppStore(useShallow(selectF
  * A check-in is due a week after the last one — or a week after the target
  * was created, if there has never been one. Targets with nothing in focus
  * have nothing to check in on.
+ *
+ * The check-in sheet this drives (not built yet) asks "Still working on
+ * these?" — milestones run for weeks, so a check-in is a nudge to confirm or
+ * swap what you picked, not a weekly deadline.
  */
 export const isCheckInDue = (target: Target | null, now: number): boolean => {
   if (!target || target.focusTaskIds.length === 0) {

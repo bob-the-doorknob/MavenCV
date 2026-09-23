@@ -171,7 +171,7 @@ export function TaskDetailScreen() {
         <View style={styles.chipRow}>
           <StatusPill status={task.status} />
           <Chip label={`${priorityLabels[task.priority]} priority`} />
-          {isFocus ? <Chip label="This week's focus" /> : null}
+          {isFocus ? <Chip label="Working on now" /> : null}
           {task.createdByUser ? <Chip label="Added by you" /> : null}
         </View>
 
