@@ -2,6 +2,8 @@ import { useMemo } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
 import { Button, Sheet } from '../../components/ui';
+import { presentProPaywall, restorePurchases } from '../../services/revenueCat';
+import { useProStatus } from '../../services/useProStatus';
 import { spacing, typography, type Theme } from '../../theme/tokens';
 import { useTheme } from '../../theme/useTheme';
 
@@ -19,6 +21,19 @@ interface ProUpsellSheetProps {
 export function ProUpsellSheet({ visible, onClose }: ProUpsellSheetProps) {
   const theme = useTheme();
   const styles = useMemo(() => createStyles(theme), [theme]);
+  const { refresh } = useProStatus();
+
+  const handleUpgrade = async (): Promise<void> => {
+    const entitled = await presentProPaywall();
+    await refresh();
+    if (entitled) onClose();
+  };
+
+  const handleRestore = async (): Promise<void> => {
+    const entitled = await restorePurchases();
+    await refresh();
+    if (entitled) onClose();
+  };
 
   return (
     <Sheet onClose={onClose} title="Export all bullets is a Pro feature" visible={visible}>
@@ -32,9 +47,8 @@ export function ProUpsellSheet({ visible, onClose }: ProUpsellSheetProps) {
           </Text>
         ))}
       </View>
-      {/* TODO: the paywall (RevenueCat offering + purchase flow) is owned by
-          another teammate — this button stays disabled until it lands. */}
-      <Button disabled label="Upgrade" onPress={() => {}} />
+      <Button label="Upgrade" onPress={() => void handleUpgrade()} />
+      <Button label="Restore purchases" onPress={() => void handleRestore()} variant="ghost" />
       <Button label="Not now" onPress={onClose} variant="ghost" />
     </Sheet>
   );
