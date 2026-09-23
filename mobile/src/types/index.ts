@@ -19,6 +19,10 @@ export interface RoadmapTask {
   why?: string;
   /** Empty for tasks persisted before steps existed. */
   steps: TaskStep[];
+  /** How long this milestone should take, 1-8 weeks. Defaults to 2. */
+  estimatedWeeks: number;
+  /** ISO date this milestone should be finished by, set by the scheduler. */
+  targetDate?: string;
   priority: TaskPriority;
   status: TaskStatus;
   startedAt?: string;
@@ -41,7 +45,12 @@ export interface Target {
   /** At most 2 not-done task ids. Empty for targets persisted before focus existed. */
   focusTaskIds: string[];
   lastCheckInAt?: string;
+  /** ISO date the user wants to be ready by. */
+  targetDate?: string;
+  schedulePace?: SchedulePace;
 }
+
+export type SchedulePace = 'comfortable' | 'ambitious';
 
 export type CvEntryStatus = 'pending' | 'ready' | 'failed';
 

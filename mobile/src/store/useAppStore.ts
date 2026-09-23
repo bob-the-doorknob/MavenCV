@@ -8,11 +8,13 @@ import type {
   CvEntry,
   CvEntryStatus,
   RoadmapTask,
+  SchedulePace,
   Target,
   TaskPriority,
   TaskStatus,
   TaskStep,
 } from '../types';
+import { clampEstimatedWeeks } from '../utils/schedule';
 import { createId } from '../utils/id';
 import { calculateReadiness } from '../utils/readiness';
 
@@ -56,6 +58,12 @@ const isTaskStep = (value: unknown): value is TaskStep =>
 const isTaskStepArray = (value: unknown): value is TaskStep[] =>
   Array.isArray(value) && value.every(isTaskStep);
 
+const isNumber = (value: unknown): value is number =>
+  typeof value === 'number' && Number.isFinite(value);
+
+const isSchedulePace = (value: unknown): value is SchedulePace =>
+  value === 'comfortable' || value === 'ambitious';
+
 const isTaskStatus = (value: unknown): value is TaskStatus =>
   value === 'not_started' || value === 'in_progress' || value === 'done';
 const isTaskPriority = (value: unknown): value is TaskPriority => value === 1 || value === 2 || value === 3;
@@ -64,11 +72,14 @@ const isCvEntryStatus = (value: unknown): value is CvEntryStatus =>
   value === 'pending' || value === 'ready' || value === 'failed';
 
 /**
- * Data as it may sit on disk: `steps` and `focusTaskIds` were added after
- * the first release, so anything persisted before then is missing them.
- * Validation accepts that; normalization (below) fills it in.
+ * Data as it may sit on disk: `steps`, `focusTaskIds` and `estimatedWeeks`
+ * were added after the first release, so anything persisted before then is
+ * missing them. Validation accepts that; normalization (below) fills it in.
  */
-type PersistedRoadmapTask = Omit<RoadmapTask, 'steps'> & { steps?: TaskStep[] };
+type PersistedRoadmapTask = Omit<RoadmapTask, 'steps' | 'estimatedWeeks'> & {
+  steps?: TaskStep[];
+  estimatedWeeks?: number;
+};
 type PersistedTarget = Omit<Target, 'roadmap' | 'focusTaskIds'> & {
   roadmap: PersistedRoadmapTask[];
   focusTaskIds?: string[];
@@ -89,6 +100,8 @@ const isRoadmapTask = (value: unknown): value is PersistedRoadmapTask =>
   isTaskStatus(value.status) &&
   isOptional(value.why, isString) &&
   isOptional(value.steps, isTaskStepArray) &&
+  isOptional(value.estimatedWeeks, isNumber) &&
+  isOptional(value.targetDate, isString) &&
   isOptional(value.startedAt, isString) &&
   isOptional(value.completedAt, isString) &&
   isOptional(value.notes, isString) &&
@@ -105,6 +118,8 @@ const isTarget = (value: unknown): value is PersistedTarget =>
   isString(value.createdAt) &&
   isOptional(value.focusTaskIds, isStringArray) &&
   isOptional(value.lastCheckInAt, isString) &&
+  isOptional(value.targetDate, isString) &&
+  isOptional(value.schedulePace, isSchedulePace) &&
   Array.isArray(value.roadmap) &&
   value.roadmap.every(isRoadmapTask);
 
@@ -125,7 +140,11 @@ interface PersistedShape {
 }
 
 /** Fills the fields added after the first release, leaving everything else untouched. */
-const normalizeTask = (task: PersistedRoadmapTask): RoadmapTask => ({ ...task, steps: task.steps ?? [] });
+const normalizeTask = (task: PersistedRoadmapTask): RoadmapTask => ({
+  ...task,
+  steps: task.steps ?? [],
+  estimatedWeeks: clampEstimatedWeeks(task.estimatedWeeks),
+});
 
 const normalizeTarget = (target: PersistedTarget): Target => ({
   ...target,
@@ -180,6 +199,13 @@ export type AddTargetInput = Omit<
 
 export type AddCvEntryInput = Omit<CvEntry, 'id' | 'createdAt'>;
 
+export interface AddMilestoneInput {
+  title: string;
+  doneWhen: string;
+  priority: TaskPriority;
+  estimatedWeeks: number;
+}
+
 interface AppState extends PersistedAppState {
   addTarget: (input: AddTargetInput) => string;
   setActiveTarget: (targetId: string | null) => void;
@@ -192,6 +218,13 @@ interface AppState extends PersistedAppState {
     updates: Partial<Pick<RoadmapTask, 'title' | 'doneWhen' | 'priority' | 'notes'>>,
   ) => void;
   deleteTask: (taskId: string) => void;
+  /** Appends a user-created milestone to the active target's roadmap. */
+  addMilestone: (input: AddMilestoneInput) => string;
+  /** Reorders the active roadmap. Unknown ids are ignored; omitted tasks keep their order at the end. */
+  reorderTasks: (taskIds: string[]) => void;
+  setTargetDate: (date: string) => void;
+  clearTargetDate: () => void;
+  setSchedulePace: (pace: SchedulePace) => void;
   toggleStep: (taskId: string, stepId: string) => void;
   addStep: (taskId: string, title: string) => void;
   removeStep: (taskId: string, stepId: string) => void;
@@ -319,6 +352,58 @@ export const useAppStore = create<AppState>()(
           // Drop not-yet-earned entries for this task (pending/failed); a
           // 'ready' entry is an earned CV line and survives.
           cvEntries: state.cvEntries.filter((entry) => entry.taskId !== taskId || entry.status === 'ready'),
+        })),
+
+      addMilestone: (input) => {
+        const id = createId();
+        const milestone: RoadmapTask = {
+          id,
+          title: input.title.trim(),
+          doneWhen: input.doneWhen.trim(),
+          priority: input.priority,
+          estimatedWeeks: clampEstimatedWeeks(input.estimatedWeeks),
+          steps: [],
+          status: 'not_started',
+        };
+        set((state) => ({
+          targets: mapActiveRoadmap(state.targets, state.activeTargetId, (tasks) => [...tasks, milestone]),
+        }));
+        return id;
+      },
+
+      reorderTasks: (taskIds) =>
+        set((state) => ({
+          targets: mapActiveRoadmap(state.targets, state.activeTargetId, (tasks) => {
+            const ordered = taskIds
+              .map((id) => tasks.find((task) => task.id === id))
+              .filter((task): task is RoadmapTask => task !== undefined);
+            const rest = tasks.filter((task) => !taskIds.includes(task.id));
+            return [...ordered, ...rest];
+          }),
+        })),
+
+      setTargetDate: (date) =>
+        set((state) => ({
+          targets: mapActiveTarget(state.targets, state.activeTargetId, (target) => ({
+            ...target,
+            targetDate: date,
+          })),
+        })),
+
+      clearTargetDate: () =>
+        set((state) => ({
+          targets: mapActiveTarget(state.targets, state.activeTargetId, (target) => {
+            const { targetDate: _removed, ...rest } = target;
+            return rest;
+          }),
+        })),
+
+      setSchedulePace: (pace) =>
+        set((state) => ({
+          targets: mapActiveTarget(state.targets, state.activeTargetId, (target) => ({
+            ...target,
+            schedulePace: pace,
+          })),
         })),
 
       toggleStep: (taskId, stepId) =>

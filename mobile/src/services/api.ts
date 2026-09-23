@@ -2,6 +2,7 @@ import type { Level } from '../data/roles';
 import { resolveRoleTitle } from '../data/roles';
 import type { RoadmapTask, TaskStep } from '../types';
 import { createId } from '../utils/id';
+import { clampEstimatedWeeks } from '../utils/schedule';
 import { getAuthToken } from './auth';
 
 const ROADMAP_TIMEOUT_MS = 45_000;
@@ -132,6 +133,7 @@ export const mapRoadmapResponse = (raw: unknown): RoadmapTask[] => {
       doneWhen: '',
       ...(typeof item.why === 'string' && item.why.trim() ? { why: item.why.trim() } : {}),
       steps: mapSteps(item.steps),
+      estimatedWeeks: clampEstimatedWeeks(item.estimatedWeeks),
       priority: 2,
       status: 'not_started',
     };
@@ -252,6 +254,7 @@ interface MockRoadmapItem {
   why: string;
   steps: readonly string[];
   priority: 1 | 2 | 3;
+  estimatedWeeks: number;
 }
 
 type MockRoadmapByLevel = Readonly<Record<Level, readonly MockRoadmapItem[]>>;
@@ -270,6 +273,7 @@ const SOFTWARE_ENGINEER_ROADMAP: MockRoadmapByLevel = {
         'Record a 2-minute walkthrough of the demo for your own reference',
       ],
       priority: 3,
+      estimatedWeeks: 5,
     },
     {
       title: 'Solve 50 data structures & algorithms problems',
@@ -282,6 +286,7 @@ const SOFTWARE_ENGINEER_ROADMAP: MockRoadmapByLevel = {
         'Time yourself on the last 10 to practise the real constraint',
       ],
       priority: 3,
+      estimatedWeeks: 6,
     },
     {
       title: 'Merge 1 pull request on an open-source or class project',
@@ -294,6 +299,7 @@ const SOFTWARE_ENGINEER_ROADMAP: MockRoadmapByLevel = {
         'Respond to review comments within two days',
       ],
       priority: 2,
+      estimatedWeeks: 2,
     },
     {
       title: 'Write 1 resume tailored to internship roles',
@@ -306,6 +312,7 @@ const SOFTWARE_ENGINEER_ROADMAP: MockRoadmapByLevel = {
         'Get it reviewed by a career center or a working engineer',
       ],
       priority: 2,
+      estimatedWeeks: 1,
     },
     {
       title: 'Complete 2 mock technical interviews',
@@ -318,6 +325,7 @@ const SOFTWARE_ENGINEER_ROADMAP: MockRoadmapByLevel = {
         'Repeat with a different interviewer and a different problem type',
       ],
       priority: 2,
+      estimatedWeeks: 2,
     },
     {
       title: 'Apply to 15 internship postings',
@@ -330,6 +338,7 @@ const SOFTWARE_ENGINEER_ROADMAP: MockRoadmapByLevel = {
         'Follow up on anything silent after two weeks',
       ],
       priority: 1,
+      estimatedWeeks: 3,
     },
   ],
   'entry-level': [
@@ -344,6 +353,7 @@ const SOFTWARE_ENGINEER_ROADMAP: MockRoadmapByLevel = {
         'Ask your manager for a reference before your last day',
       ],
       priority: 3,
+      estimatedWeeks: 8,
     },
     {
       title: 'Build 2 production-quality portfolio projects with tests and CI',
@@ -357,6 +367,7 @@ const SOFTWARE_ENGINEER_ROADMAP: MockRoadmapByLevel = {
         'Add error handling and logging to at least one of them',
       ],
       priority: 3,
+      estimatedWeeks: 8,
     },
     {
       title: 'Solve 150 data structures & algorithms problems',
@@ -369,6 +380,7 @@ const SOFTWARE_ENGINEER_ROADMAP: MockRoadmapByLevel = {
         'Revisit anything you failed after two weeks, from scratch',
       ],
       priority: 3,
+      estimatedWeeks: 8,
     },
     {
       title: 'Complete 5 system design interview sessions',
@@ -381,6 +393,7 @@ const SOFTWARE_ENGINEER_ROADMAP: MockRoadmapByLevel = {
         'Write down the follow-up questions you could not answer, then answer them',
       ],
       priority: 2,
+      estimatedWeeks: 4,
     },
     {
       title: 'Merge 2 pull requests on open-source or team projects',
@@ -393,6 +406,7 @@ const SOFTWARE_ENGINEER_ROADMAP: MockRoadmapByLevel = {
         'Address review feedback promptly and completely',
       ],
       priority: 2,
+      estimatedWeeks: 3,
     },
     {
       title: 'Apply to 30 full-time roles',
@@ -405,6 +419,7 @@ const SOFTWARE_ENGINEER_ROADMAP: MockRoadmapByLevel = {
         'Apply to 10 a week rather than all at once',
       ],
       priority: 1,
+      estimatedWeeks: 4,
     },
   ],
 };
@@ -423,6 +438,7 @@ const DATA_SCIENTIST_ROADMAP: MockRoadmapByLevel = {
         'Write a short summary a non-analyst could follow',
       ],
       priority: 3,
+      estimatedWeeks: 4,
     },
     {
       title: 'Complete 1 statistics and probability course',
@@ -435,6 +451,7 @@ const DATA_SCIENTIST_ROADMAP: MockRoadmapByLevel = {
         'Explain p-values out loud to someone outside the field',
       ],
       priority: 3,
+      estimatedWeeks: 6,
     },
     {
       title: 'Build 1 predictive model with scikit-learn or similar',
@@ -447,6 +464,7 @@ const DATA_SCIENTIST_ROADMAP: MockRoadmapByLevel = {
         'Document what you tried, including what did not work',
       ],
       priority: 2,
+      estimatedWeeks: 3,
     },
     {
       title: 'Solve 30 SQL query problems',
@@ -459,6 +477,7 @@ const DATA_SCIENTIST_ROADMAP: MockRoadmapByLevel = {
         'Rewrite your slowest queries to practise reading a query plan',
       ],
       priority: 2,
+      estimatedWeeks: 3,
     },
     {
       title: 'Write 1 resume highlighting data projects',
@@ -471,6 +490,7 @@ const DATA_SCIENTIST_ROADMAP: MockRoadmapByLevel = {
         'Get it reviewed by someone who has hired analysts',
       ],
       priority: 2,
+      estimatedWeeks: 1,
     },
     {
       title: 'Apply to 15 internship postings',
@@ -483,6 +503,7 @@ const DATA_SCIENTIST_ROADMAP: MockRoadmapByLevel = {
         'Apply to 5 a week rather than all at once',
       ],
       priority: 1,
+      estimatedWeeks: 3,
     },
   ],
   'entry-level': [
@@ -497,6 +518,7 @@ const DATA_SCIENTIST_ROADMAP: MockRoadmapByLevel = {
         'Ask your manager for a reference before your last day',
       ],
       priority: 3,
+      estimatedWeeks: 8,
     },
     {
       title: 'Build 2 portfolio projects covering cleaning, modeling, and deployment',
@@ -510,6 +532,7 @@ const DATA_SCIENTIST_ROADMAP: MockRoadmapByLevel = {
         'Include the runtime and cost of your pipeline',
       ],
       priority: 3,
+      estimatedWeeks: 8,
     },
     {
       title: 'Design and analyze 1 A/B test',
@@ -522,6 +545,7 @@ const DATA_SCIENTIST_ROADMAP: MockRoadmapByLevel = {
         'Write a recommendation and state what would change your mind',
       ],
       priority: 3,
+      estimatedWeeks: 2,
     },
     {
       title: 'Solve 50 SQL and statistics practice questions',
@@ -534,6 +558,7 @@ const DATA_SCIENTIST_ROADMAP: MockRoadmapByLevel = {
         'Log each mistake by topic and retake your weakest topic weekly',
       ],
       priority: 2,
+      estimatedWeeks: 4,
     },
     {
       title: 'Present 1 project to a technical or non-technical audience',
@@ -546,6 +571,7 @@ const DATA_SCIENTIST_ROADMAP: MockRoadmapByLevel = {
         'Collect questions afterwards and write better answers to them',
       ],
       priority: 2,
+      estimatedWeeks: 2,
     },
     {
       title: 'Apply to 30 full-time roles',
@@ -558,6 +584,7 @@ const DATA_SCIENTIST_ROADMAP: MockRoadmapByLevel = {
         'Ask for a referral wherever you know someone',
       ],
       priority: 1,
+      estimatedWeeks: 4,
     },
   ],
 };
@@ -576,6 +603,7 @@ const PRODUCT_MANAGER_ROADMAP: MockRoadmapByLevel = {
         'Share it with someone in product and revise once',
       ],
       priority: 3,
+      estimatedWeeks: 3,
     },
     {
       title: 'Complete 1 product fundamentals course',
@@ -588,6 +616,7 @@ const PRODUCT_MANAGER_ROADMAP: MockRoadmapByLevel = {
         'Apply one framework to a real backlog, even a class project',
       ],
       priority: 3,
+      estimatedWeeks: 4,
     },
     {
       title: 'Conduct 3 user interviews for a class or side project',
@@ -600,6 +629,7 @@ const PRODUCT_MANAGER_ROADMAP: MockRoadmapByLevel = {
         'Synthesize the three into 3 themes with supporting quotes',
       ],
       priority: 2,
+      estimatedWeeks: 2,
     },
     {
       title: 'Write 1 product requirements document for a hypothetical feature',
@@ -612,6 +642,7 @@ const PRODUCT_MANAGER_ROADMAP: MockRoadmapByLevel = {
         'List the open questions and risks honestly',
       ],
       priority: 2,
+      estimatedWeeks: 2,
     },
     {
       title: 'Complete 2 mock product sense or case interviews',
@@ -624,6 +655,7 @@ const PRODUCT_MANAGER_ROADMAP: MockRoadmapByLevel = {
         'Write down the feedback the same day and apply it in the next session',
       ],
       priority: 2,
+      estimatedWeeks: 2,
     },
     {
       title: 'Apply to 15 internship postings',
@@ -636,6 +668,7 @@ const PRODUCT_MANAGER_ROADMAP: MockRoadmapByLevel = {
         'Ask for a referral wherever you know someone',
       ],
       priority: 1,
+      estimatedWeeks: 3,
     },
   ],
   'entry-level': [
@@ -650,6 +683,7 @@ const PRODUCT_MANAGER_ROADMAP: MockRoadmapByLevel = {
         'Ask your manager for a reference before your last day',
       ],
       priority: 3,
+      estimatedWeeks: 8,
     },
     {
       title: 'Lead 1 feature from spec to launch on a class, club, or side project',
@@ -662,6 +696,7 @@ const PRODUCT_MANAGER_ROADMAP: MockRoadmapByLevel = {
         'Measure the result after launch and write up what you learned',
       ],
       priority: 3,
+      estimatedWeeks: 8,
     },
     {
       title: 'Conduct 5 user interviews and synthesize findings',
@@ -674,6 +709,7 @@ const PRODUCT_MANAGER_ROADMAP: MockRoadmapByLevel = {
         'Write a synthesis that names what you will act on and what you will not',
       ],
       priority: 3,
+      estimatedWeeks: 3,
     },
     {
       title: 'Complete 15 mock product, analytical, and behavioral interviews',
@@ -686,6 +722,7 @@ const PRODUCT_MANAGER_ROADMAP: MockRoadmapByLevel = {
         'Log feedback after each session and target your weakest format next',
       ],
       priority: 2,
+      estimatedWeeks: 6,
     },
     {
       title: 'Write 2 PRDs, at least one backed by real user data',
@@ -698,6 +735,7 @@ const PRODUCT_MANAGER_ROADMAP: MockRoadmapByLevel = {
         'Get both reviewed by someone working in product and revise',
       ],
       priority: 2,
+      estimatedWeeks: 3,
     },
     {
       title: 'Apply to 30 full-time roles',
@@ -710,6 +748,7 @@ const PRODUCT_MANAGER_ROADMAP: MockRoadmapByLevel = {
         'Ask for a referral wherever you know someone',
       ],
       priority: 1,
+      estimatedWeeks: 4,
     },
   ],
 };
@@ -728,6 +767,7 @@ const UI_UX_ROADMAP: MockRoadmapByLevel = {
         'Write the reasoning behind each major decision',
       ],
       priority: 3,
+      estimatedWeeks: 4,
     },
     {
       title: 'Complete 1 UX research and design fundamentals course',
@@ -740,6 +780,7 @@ const UI_UX_ROADMAP: MockRoadmapByLevel = {
         'Summarize each topic into a one-page reference you will reuse',
       ],
       priority: 3,
+      estimatedWeeks: 5,
     },
     {
       title: 'Conduct 3 usability tests on a design',
@@ -752,6 +793,7 @@ const UI_UX_ROADMAP: MockRoadmapByLevel = {
         'Fix the top 2 issues and retest the same tasks',
       ],
       priority: 2,
+      estimatedWeeks: 2,
     },
     {
       title: 'Build 1 high-fidelity prototype in Figma',
@@ -764,6 +806,7 @@ const UI_UX_ROADMAP: MockRoadmapByLevel = {
         'Share the link and collect feedback from 2 designers',
       ],
       priority: 2,
+      estimatedWeeks: 3,
     },
     {
       title: 'Publish 1 portfolio site with 2-3 projects',
@@ -776,6 +819,7 @@ const UI_UX_ROADMAP: MockRoadmapByLevel = {
         'Make it load fast and read well on a phone',
       ],
       priority: 2,
+      estimatedWeeks: 3,
     },
     {
       title: 'Apply to 15 internship postings',
@@ -788,6 +832,7 @@ const UI_UX_ROADMAP: MockRoadmapByLevel = {
         'Reorder your case studies to match each company’s product type',
       ],
       priority: 1,
+      estimatedWeeks: 3,
     },
   ],
   'entry-level': [
@@ -802,6 +847,7 @@ const UI_UX_ROADMAP: MockRoadmapByLevel = {
         'Ask your manager for a reference before your last day',
       ],
       priority: 3,
+      estimatedWeeks: 8,
     },
     {
       title: 'Build 2 in-depth case studies from research through final design',
@@ -815,6 +861,7 @@ const UI_UX_ROADMAP: MockRoadmapByLevel = {
         'Rehearse a 10-minute verbal walkthrough of each',
       ],
       priority: 3,
+      estimatedWeeks: 8,
     },
     {
       title: 'Conduct 5 usability tests across at least 2 projects',
@@ -827,6 +874,7 @@ const UI_UX_ROADMAP: MockRoadmapByLevel = {
         'Show the before and after of what each finding changed',
       ],
       priority: 3,
+      estimatedWeeks: 3,
     },
     {
       title: 'Complete 5 mock portfolio review interviews',
@@ -839,6 +887,7 @@ const UI_UX_ROADMAP: MockRoadmapByLevel = {
         'Log the feedback after each session and revise the deck',
       ],
       priority: 2,
+      estimatedWeeks: 3,
     },
     {
       title: 'Collaborate with 1 engineer or PM on a shipped feature',
@@ -851,6 +900,7 @@ const UI_UX_ROADMAP: MockRoadmapByLevel = {
         'Write down what you would change in the next handoff',
       ],
       priority: 2,
+      estimatedWeeks: 5,
     },
     {
       title: 'Apply to 30 full-time roles',
@@ -863,6 +913,7 @@ const UI_UX_ROADMAP: MockRoadmapByLevel = {
         'Ask for a referral wherever you know someone',
       ],
       priority: 1,
+      estimatedWeeks: 4,
     },
   ],
 };
@@ -880,6 +931,7 @@ const GENERIC_ROADMAP: MockRoadmapByLevel = {
         'Write a short summary of the problem, your approach, and the result',
       ],
       priority: 3,
+      estimatedWeeks: 4,
     },
     {
       title: 'Complete 1 introductory course in the target field',
@@ -892,6 +944,7 @@ const GENERIC_ROADMAP: MockRoadmapByLevel = {
         'Apply one concept to your project to prove you can use it',
       ],
       priority: 3,
+      estimatedWeeks: 4,
     },
     {
       title: 'Complete 1 hands-on exercise or case study relevant to the role',
@@ -904,6 +957,7 @@ const GENERIC_ROADMAP: MockRoadmapByLevel = {
         'Have someone in the field review it and tell you what is missing',
       ],
       priority: 2,
+      estimatedWeeks: 2,
     },
     {
       title: 'Write 1 resume tailored to the target role',
@@ -916,6 +970,7 @@ const GENERIC_ROADMAP: MockRoadmapByLevel = {
         'Get it reviewed by a career center or someone in the field',
       ],
       priority: 2,
+      estimatedWeeks: 1,
     },
     {
       title: 'Complete 2 mock interviews for the target role',
@@ -928,6 +983,7 @@ const GENERIC_ROADMAP: MockRoadmapByLevel = {
         'Apply the feedback in the second session',
       ],
       priority: 2,
+      estimatedWeeks: 2,
     },
     {
       title: 'Apply to 15 internship postings',
@@ -940,6 +996,7 @@ const GENERIC_ROADMAP: MockRoadmapByLevel = {
         'Follow up on anything silent after two weeks',
       ],
       priority: 1,
+      estimatedWeeks: 3,
     },
   ],
   'entry-level': [
@@ -954,6 +1011,7 @@ const GENERIC_ROADMAP: MockRoadmapByLevel = {
         'Ask for a reference before your last day',
       ],
       priority: 3,
+      estimatedWeeks: 8,
     },
     {
       title: 'Build 2 portfolio-quality projects relevant to the target role',
@@ -966,6 +1024,7 @@ const GENERIC_ROADMAP: MockRoadmapByLevel = {
         'Get feedback from someone working in the field and revise',
       ],
       priority: 3,
+      estimatedWeeks: 7,
     },
     {
       title: 'Complete 1 intermediate course deepening core role skills',
@@ -978,6 +1037,7 @@ const GENERIC_ROADMAP: MockRoadmapByLevel = {
         'Write a summary you could teach from',
       ],
       priority: 2,
+      estimatedWeeks: 5,
     },
     {
       title: 'Complete 5 mock interviews for the target role',
@@ -990,6 +1050,7 @@ const GENERIC_ROADMAP: MockRoadmapByLevel = {
         'Log feedback after each and target your weakest area next',
       ],
       priority: 2,
+      estimatedWeeks: 3,
     },
     {
       title: 'Build a network of 10 contacts in the field',
@@ -1002,6 +1063,7 @@ const GENERIC_ROADMAP: MockRoadmapByLevel = {
         'Follow up with a thank-you and stay in touch quarterly',
       ],
       priority: 2,
+      estimatedWeeks: 4,
     },
     {
       title: 'Apply to 30 full-time roles',
@@ -1014,6 +1076,7 @@ const GENERIC_ROADMAP: MockRoadmapByLevel = {
         'Apply to 10 a week rather than all at once',
       ],
       priority: 1,
+      estimatedWeeks: 4,
     },
   ],
 };
@@ -1039,6 +1102,7 @@ const mockGenerateRoadmap = async (input: GenerateRoadmapInput): Promise<Roadmap
     doneWhen: item.doneWhen,
     why: item.why,
     steps: item.steps.map((title) => ({ id: createId(), title, done: false })),
+    estimatedWeeks: item.estimatedWeeks,
     priority: item.priority,
     status: 'not_started',
   }));

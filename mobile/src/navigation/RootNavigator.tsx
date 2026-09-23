@@ -10,7 +10,7 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import Svg, { Path } from 'react-native-svg';
 
-import { CvVaultScreen } from '../screens/CvVaultScreen';
+import { CvVaultScreen } from '../screens/cv/CvVaultScreen';
 import { OnboardingFlow } from '../screens/onboarding/OnboardingFlow';
 import { RoadmapScreen } from '../screens/roadmap/RoadmapScreen';
 import { TaskDetailScreen } from '../screens/task/TaskDetailScreen';

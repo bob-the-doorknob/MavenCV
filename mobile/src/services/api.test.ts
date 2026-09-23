@@ -9,8 +9,30 @@ describe('mapRoadmapResponse', () => {
     });
 
     expect(result).toEqual([
-      { id: 't1', title: 'Build 1 thing', doneWhen: '', steps: [], priority: 2, status: 'not_started' },
+      {
+        id: 't1',
+        title: 'Build 1 thing',
+        doneWhen: '',
+        steps: [],
+        estimatedWeeks: 2,
+        priority: 2,
+        status: 'not_started',
+      },
     ]);
+  });
+
+  it('maps estimatedWeeks from the backend, clamped to 1-8', () => {
+    const result = mapRoadmapResponse({
+      tasks: [
+        { id: 't1', title: 'Short', estimatedWeeks: 1 },
+        { id: 't2', title: 'Long', estimatedWeeks: 99 },
+        { id: 't3', title: 'Too short', estimatedWeeks: 0 },
+        { id: 't4', title: 'Fractional', estimatedWeeks: 3.6 },
+        { id: 't5', title: 'Nonsense', estimatedWeeks: 'six' },
+      ],
+    });
+
+    expect(result.map((task) => task.estimatedWeeks)).toEqual([1, 8, 1, 4, 2]);
   });
 
   it('omits why and returns no steps when the backend sends neither', () => {
