@@ -23,6 +23,8 @@ export interface MilestoneItem {
   detail?: string;
   /** Status line under the title, e.g. "Med · In progress · 2/4 steps". */
   meta?: string;
+  /** Timing line, e.g. "Due 12 May" or "~3 weeks". Colored by its tone. */
+  schedule?: { text: string; tone: 'none' | 'on_track' | 'due_soon' | 'overdue' };
   category?: CategoryKey;
 }
 
@@ -104,7 +106,25 @@ function MilestoneRow({
     <View style={[styles.content, isCurrent && styles.currentCard]}>
       <View style={styles.copy}>
         <Text style={[styles.title, item.status === 'done' && styles.titleDone]}>{item.title}</Text>
-        {item.meta ? <Text style={styles.detail}>{item.meta}</Text> : null}
+        {item.meta || item.schedule ? (
+          <Text style={styles.detail}>
+            {item.meta}
+            {item.meta && item.schedule ? ' · ' : ''}
+            {item.schedule ? (
+              <Text
+                style={
+                  item.schedule.tone === 'overdue'
+                    ? styles.scheduleOverdue
+                    : item.schedule.tone === 'due_soon'
+                      ? styles.scheduleDueSoon
+                      : undefined
+                }
+              >
+                {item.schedule.text}
+              </Text>
+            ) : null}
+          </Text>
+        ) : null}
         {item.detail ? <Text style={styles.detail}>{item.detail}</Text> : null}
         {item.category ? (
           <View style={styles.chipRow}>
@@ -220,5 +240,11 @@ const createStyles = (theme: Theme) =>
     chipRow: {
       alignItems: 'flex-start',
       marginTop: spacing.xs,
+    },
+    scheduleDueSoon: {
+      color: theme.colors.accentText,
+    },
+    scheduleOverdue: {
+      color: theme.colors.danger,
     },
   });

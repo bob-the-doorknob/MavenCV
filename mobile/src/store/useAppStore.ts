@@ -14,7 +14,7 @@ import type {
   TaskStatus,
   TaskStep,
 } from '../types';
-import { clampEstimatedWeeks } from '../utils/schedule';
+import { buildSchedule, clampEstimatedWeeks } from '../utils/schedule';
 import { createId } from '../utils/id';
 import { calculateReadiness } from '../utils/readiness';
 
@@ -225,6 +225,9 @@ interface AppState extends PersistedAppState {
   setTargetDate: (date: string) => void;
   clearTargetDate: () => void;
   setSchedulePace: (pace: SchedulePace) => void;
+  setEstimatedWeeks: (taskId: string, weeks: number) => void;
+  /** Sets the pace and lays every remaining milestone out against the target date. */
+  applySchedule: (pace: SchedulePace) => void;
   toggleStep: (taskId: string, stepId: string) => void;
   addStep: (taskId: string, title: string) => void;
   removeStep: (taskId: string, stepId: string) => void;
@@ -250,6 +253,21 @@ const mapActiveRoadmap = (
   map: (tasks: RoadmapTask[]) => RoadmapTask[],
 ): Target[] =>
   mapActiveTarget(targets, activeTargetId, (target) => ({ ...target, roadmap: map(target.roadmap) }));
+
+/**
+ * Re-lays the remaining milestones whenever the roadmap changes under a
+ * target date — finishing, deleting or re-estimating a task all move every
+ * date after it. Without a target date there is nothing to lay out.
+ */
+const withSchedule = (target: Target, now: number): Target => {
+  if (!target.targetDate) {
+    return target;
+  }
+  return {
+    ...target,
+    roadmap: buildSchedule(target.roadmap, target.targetDate, now, target.schedulePace ?? 'comfortable'),
+  };
+};
 
 /** Steps live on a task, so every step action is the same shape of update. */
 const mapTaskSteps = (
@@ -323,14 +341,19 @@ export const useAppStore = create<AppState>()(
         };
 
         set((state) => ({
-          targets: mapActiveTarget(state.targets, state.activeTargetId, (target) => ({
-            ...target,
-            roadmap: target.roadmap.map((task) =>
-              task.id === taskId ? { ...task, status: 'done', completedAt, notes } : task,
+          targets: mapActiveTarget(state.targets, state.activeTargetId, (target) =>
+            withSchedule(
+              {
+                ...target,
+                roadmap: target.roadmap.map((task) =>
+                  task.id === taskId ? { ...task, status: 'done', completedAt, notes } : task,
+                ),
+                // Focus is for what's still open — a finished task drops out of it.
+                focusTaskIds: target.focusTaskIds.filter((id) => id !== taskId),
+              },
+              Date.now(),
             ),
-            // Focus is for what's still open — a finished task drops out of it.
-            focusTaskIds: target.focusTaskIds.filter((id) => id !== taskId),
-          })),
+          ),
           cvEntries: [...state.cvEntries, cvEntry],
         }));
       },
@@ -344,11 +367,16 @@ export const useAppStore = create<AppState>()(
 
       deleteTask: (taskId) =>
         set((state) => ({
-          targets: mapActiveTarget(state.targets, state.activeTargetId, (target) => ({
-            ...target,
-            roadmap: target.roadmap.filter((task) => task.id !== taskId),
-            focusTaskIds: target.focusTaskIds.filter((id) => id !== taskId),
-          })),
+          targets: mapActiveTarget(state.targets, state.activeTargetId, (target) =>
+            withSchedule(
+              {
+                ...target,
+                roadmap: target.roadmap.filter((task) => task.id !== taskId),
+                focusTaskIds: target.focusTaskIds.filter((id) => id !== taskId),
+              },
+              Date.now(),
+            ),
+          ),
           // Drop not-yet-earned entries for this task (pending/failed); a
           // 'ready' entry is an earned CV line and survives.
           cvEntries: state.cvEntries.filter((entry) => entry.taskId !== taskId || entry.status === 'ready'),
@@ -404,6 +432,28 @@ export const useAppStore = create<AppState>()(
             ...target,
             schedulePace: pace,
           })),
+        })),
+
+      setEstimatedWeeks: (taskId, weeks) =>
+        set((state) => ({
+          targets: mapActiveTarget(state.targets, state.activeTargetId, (target) =>
+            withSchedule(
+              {
+                ...target,
+                roadmap: target.roadmap.map((task) =>
+                  task.id === taskId ? { ...task, estimatedWeeks: clampEstimatedWeeks(weeks) } : task,
+                ),
+              },
+              Date.now(),
+            ),
+          ),
+        })),
+
+      applySchedule: (pace) =>
+        set((state) => ({
+          targets: mapActiveTarget(state.targets, state.activeTargetId, (target) =>
+            withSchedule({ ...target, schedulePace: pace }, Date.now()),
+          ),
         })),
 
       toggleStep: (taskId, stepId) =>

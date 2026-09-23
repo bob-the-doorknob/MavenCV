@@ -22,6 +22,8 @@ import { useActiveTarget, useAppStore } from '../../store/useAppStore';
 import { minTouchTarget, radii, spacing, typography, type Theme } from '../../theme/tokens';
 import { useTheme } from '../../theme/useTheme';
 import { countSteps, priorityLabels } from '../../utils/groupTasks';
+import { clampEstimatedWeeks, scheduleLabel } from '../../utils/schedule';
+import { formatDueDate } from '../../utils/targetDate';
 import type { CvEntry, TaskStatus } from '../../types';
 import { EditTaskSheet } from './EditTaskSheet';
 import { MarkDoneSheet } from './MarkDoneSheet';
@@ -36,6 +38,8 @@ const STATUS_LABELS: Readonly<Record<TaskStatus, string>> = {
 };
 
 const BANNER_DURATION_MS = 3_000;
+
+const ESTIMATE_CHOICES = [1, 2, 4, 6, 8] as const;
 
 export function TaskDetailScreen() {
   const theme = useTheme();
@@ -78,6 +82,7 @@ export function TaskDetailScreen() {
   }
 
   const steps = countSteps(task);
+  const schedule = scheduleLabel(task, Date.now(), formatDueDate);
   const isFocus = target?.focusTaskIds.includes(task.id) ?? false;
   const cvEntry = [...cvEntries].reverse().find((entry) => entry.taskId === task.id);
 
@@ -157,6 +162,32 @@ export function TaskDetailScreen() {
         </View>
 
         <Text style={styles.title}>{task.title}</Text>
+
+        {schedule ? (
+          <Text
+            style={[
+              styles.schedule,
+              schedule.status === 'overdue' && styles.scheduleOverdue,
+              schedule.status === 'due_soon' && styles.scheduleDueSoon,
+            ]}
+          >
+            {schedule.text}
+          </Text>
+        ) : null}
+
+        <View style={styles.section}>
+          <SectionLabel>Estimated time</SectionLabel>
+          <View style={styles.chipRow}>
+            {ESTIMATE_CHOICES.map((weeks) => (
+              <Chip
+                key={weeks}
+                label={weeks === 1 ? '1 week' : `${weeks} weeks`}
+                onPress={() => useAppStore.getState().setEstimatedWeeks(task.id, weeks)}
+                selected={clampEstimatedWeeks(task.estimatedWeeks) === weeks}
+              />
+            ))}
+          </View>
+        </View>
 
         {steps.total > 0 ? (
           <View style={styles.stepSummary}>
@@ -499,6 +530,19 @@ const createStyles = (theme: Theme) =>
       fontWeight: typography.title.fontWeight,
       letterSpacing: typography.title.letterSpacing,
       lineHeight: typography.title.lineHeight,
+    },
+    schedule: {
+      color: theme.colors.textSecondary,
+      fontFamily: typography.rowTitle.fontFamily,
+      fontSize: typography.caption.fontSize,
+      fontWeight: '600',
+      marginTop: -spacing.sm,
+    },
+    scheduleDueSoon: {
+      color: theme.colors.accentText,
+    },
+    scheduleOverdue: {
+      color: theme.colors.danger,
     },
     stepSummary: {
       gap: spacing.sm,

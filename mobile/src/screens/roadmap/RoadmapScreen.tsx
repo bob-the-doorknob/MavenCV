@@ -26,8 +26,13 @@ import { headerColors, radii, spacing, typography, type Theme } from '../../them
 import { useTheme } from '../../theme/useTheme';
 import { countSteps, orderRoadmap, taskMetaLine } from '../../utils/groupTasks';
 import { categoryKeyForRole } from '../../utils/roleCategory';
+import { fits, scheduleLabel } from '../../utils/schedule';
+import { formatDueDate, formatMonthYear, formatWeeksLeft } from '../../utils/targetDate';
 import type { RoadmapTask, Target } from '../../types';
+import { DoesNotFitSheet } from './DoesNotFitSheet';
 import { FocusPickerSheet } from './FocusPickerSheet';
+import { ReadyBySheet } from './ReadyBySheet';
+import { TrimMilestonesSheet } from './TrimMilestonesSheet';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 
@@ -71,16 +76,58 @@ export function RoadmapScreen() {
   const focusTasks = useFocusTasks();
   const [scoringVisible, setScoringVisible] = useState(false);
   const [focusPickerVisible, setFocusPickerVisible] = useState(false);
+  const [readyByVisible, setReadyByVisible] = useState(false);
+  const [trimVisible, setTrimVisible] = useState(false);
+  const [misfit, setMisfit] = useState<{ neededWeeks: number; availableWeeks: number } | null>(null);
 
   const roadmap = target?.roadmap ?? [];
   const ordered = useMemo(() => orderRoadmap(roadmap), [roadmap]);
+  const now = Date.now();
 
-  const milestones: MilestoneItem[] = ordered.tasks.map((task) => ({
-    id: task.id,
-    title: task.title,
-    status: task.status,
-    meta: taskMetaLine(task, task.id === ordered.upNextId),
-  }));
+  const milestones: MilestoneItem[] = ordered.tasks.map((task) => {
+    const schedule = scheduleLabel(task, now, formatDueDate);
+    return {
+      id: task.id,
+      title: task.title,
+      status: task.status,
+      meta: taskMetaLine(task, task.id === ordered.upNextId),
+      ...(schedule ? { schedule: { text: schedule.text, tone: schedule.status } } : {}),
+    };
+  });
+
+  /**
+   * Picking a date only schedules straight away when the work actually fits.
+   * Otherwise the user chooses how to resolve it rather than being handed a
+   * plan that was quietly compressed.
+   */
+  const chooseTargetDate = (date: string): void => {
+    const store = useAppStore.getState();
+    store.setTargetDate(date);
+    setReadyByVisible(false);
+
+    const fit = fits(roadmap, date, Date.now());
+    if (fit.fits) {
+      store.applySchedule('comfortable');
+      setMisfit(null);
+      return;
+    }
+    setMisfit({ neededWeeks: fit.neededWeeks, availableWeeks: fit.availableWeeks });
+  };
+
+  /** Re-checks the fit after the roadmap was trimmed. */
+  const recheckFit = (): void => {
+    const current = useAppStore.getState().targets.find((candidate) => candidate.id === target?.id);
+    if (!current?.targetDate) {
+      return;
+    }
+    const fit = fits(current.roadmap, current.targetDate, Date.now());
+    if (fit.fits) {
+      useAppStore.getState().applySchedule(current.schedulePace ?? 'comfortable');
+      setMisfit(null);
+      return;
+    }
+    setMisfit({ neededWeeks: fit.neededWeeks, availableWeeks: fit.availableWeeks });
+  };
 
   const openTask = (taskId: string): void => {
     navigation.navigate('TaskDetail', { taskId });
@@ -123,6 +170,13 @@ export function RoadmapScreen() {
           >
             <Text style={styles.scoringLink}>How is this scored?</Text>
           </Pressable>
+        </View>
+
+        <View style={styles.section}>
+          <ReadyByRow
+            onPress={() => setReadyByVisible(true)}
+            {...(target?.targetDate ? { targetDate: target.targetDate } : {})}
+          />
         </View>
 
         {ordered.totalCount === 0 ? (
@@ -203,7 +257,67 @@ export function RoadmapScreen() {
         tasks={roadmap}
         visible={focusPickerVisible}
       />
+
+      <ReadyBySheet
+        currentDate={target?.targetDate}
+        onClose={() => setReadyByVisible(false)}
+        onPick={chooseTargetDate}
+        visible={readyByVisible}
+      />
+
+      <DoesNotFitSheet
+        availableWeeks={misfit?.availableWeeks ?? 0}
+        neededWeeks={misfit?.neededWeeks ?? 0}
+        onClose={() => setMisfit(null)}
+        onGoAmbitious={() => {
+          useAppStore.getState().applySchedule('ambitious');
+          setMisfit(null);
+        }}
+        onPickLaterDate={() => {
+          setMisfit(null);
+          setReadyByVisible(true);
+        }}
+        onTrim={() => {
+          setMisfit(null);
+          setTrimVisible(true);
+        }}
+        visible={misfit !== null}
+      />
+
+      <TrimMilestonesSheet
+        onClose={() => setTrimVisible(false)}
+        onTrimmed={recheckFit}
+        tasks={roadmap}
+        visible={trimVisible}
+      />
     </View>
+  );
+}
+
+function ReadyByRow({ targetDate, onPress }: { targetDate?: string; onPress: () => void }) {
+  const theme = useTheme();
+  const styles = useMemo(() => createStyles(theme), [theme]);
+  const press = usePressScale();
+
+  const label = targetDate
+    ? `Ready by ${formatMonthYear(targetDate)} · ${formatWeeksLeft(targetDate, Date.now())}`
+    : 'Set a date you want to be ready by';
+
+  return (
+    <Animated.View style={press.style}>
+      <Pressable
+        accessibilityLabel={targetDate ? `${label}. Change it.` : label}
+        accessibilityRole="button"
+        android_ripple={{ color: theme.colors.border }}
+        onPress={onPress}
+        onPressIn={press.onPressIn}
+        onPressOut={press.onPressOut}
+        style={styles.readyByRow}
+      >
+        <Text style={[styles.readyByLabel, !targetDate && styles.readyByPrompt]}>{label}</Text>
+        <Text style={styles.readyByAction}>{targetDate ? 'Edit' : 'Set'}</Text>
+      </Pressable>
+    </Animated.View>
   );
 }
 
@@ -325,6 +439,39 @@ const createStyles = (theme: Theme) =>
       alignItems: 'center',
       flexDirection: 'row',
       justifyContent: 'space-between',
+    },
+    readyByRow: {
+      alignItems: 'center',
+      backgroundColor: theme.colors.surface,
+      borderColor: theme.colors.border,
+      borderRadius: radii.md,
+      borderWidth: 1,
+      flexDirection: 'row',
+      gap: spacing.md,
+      justifyContent: 'space-between',
+      minHeight: 52,
+      paddingHorizontal: spacing.lg,
+      paddingVertical: spacing.md,
+    },
+    readyByLabel: {
+      color: theme.colors.textPrimary,
+      flex: 1,
+      fontFamily: typography.rowTitle.fontFamily,
+      fontSize: typography.rowTitle.fontSize,
+      fontWeight: typography.rowTitle.fontWeight,
+      lineHeight: typography.rowTitle.lineHeight,
+    },
+    readyByPrompt: {
+      color: theme.colors.textSecondary,
+      fontFamily: typography.body.fontFamily,
+      fontSize: typography.body.fontSize,
+      fontWeight: typography.body.fontWeight,
+    },
+    readyByAction: {
+      color: theme.colors.textMuted,
+      fontFamily: typography.caption.fontFamily,
+      fontSize: typography.caption.fontSize,
+      fontWeight: '600',
     },
     checkIn: {
       color: theme.colors.textMuted,

@@ -95,6 +95,30 @@ export const buildSchedule = (
   });
 };
 
+export interface ScheduleLabel {
+  text: string;
+  status: ScheduleStatus;
+}
+
+/**
+ * What a milestone row says about time: its due date once the roadmap is
+ * scheduled, otherwise its raw estimate. Done work shows nothing.
+ */
+export const scheduleLabel = (
+  task: RoadmapTask,
+  now: number,
+  formatDate: (iso: string) => string,
+): ScheduleLabel | null => {
+  if (task.status === 'done') {
+    return null;
+  }
+  const status = scheduleStatus(task, now);
+  if (!task.targetDate || status === 'none') {
+    return { text: `~${clampEstimatedWeeks(task.estimatedWeeks)} weeks`, status: 'none' };
+  }
+  return { text: `Due ${formatDate(task.targetDate)}`, status };
+};
+
 export const scheduleStatus = (task: RoadmapTask, now: number): ScheduleStatus => {
   if (task.status === 'done' || !task.targetDate) {
     return 'none';
