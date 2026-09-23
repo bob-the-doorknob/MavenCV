@@ -6,10 +6,9 @@ import { useTheme } from '../../theme/useTheme';
 import { EXPERIENCE_MIN_LENGTH } from '../../utils/experienceLimits';
 import { AboutYouScreen } from './AboutYouScreen';
 import { GeneratingScreen } from './GeneratingScreen';
-import { RoadmapPreview } from './RoadmapPreview';
 import { RoleScreen } from './RoleScreen';
 
-type Step = 'role' | 'aboutYou' | 'generating' | 'preview';
+type Step = 'role' | 'aboutYou' | 'generating';
 
 const MAX_CUSTOM_TITLE_LENGTH = 60;
 
@@ -18,8 +17,8 @@ const MAX_CUSTOM_TITLE_LENGTH = 60;
  * presentational, driven entirely by props. Nothing is saved to the store
  * until GeneratingScreen's generateRoadmap call succeeds.
  *
- * React Navigation isn't installed yet, so steps are a plain useState
- * switch rather than a navigator.
+ * Steps stay a plain useState switch rather than a nested navigator — the
+ * flow is linear and its state dies with it.
  */
 export function OnboardingFlow() {
   const theme = useTheme();
@@ -41,10 +40,6 @@ export function OnboardingFlow() {
   const trimmedEmployer = employer.trim() || undefined;
   const trimmedExperience = experience.trim();
 
-  if (step === 'preview') {
-    return <RoadmapPreview />;
-  }
-
   if (step === 'generating') {
     return (
       <GeneratingScreen
@@ -53,7 +48,9 @@ export function OnboardingFlow() {
         experience={trimmedExperience}
         level={level as Level}
         onBack={() => setStep('aboutYou')}
-        onDone={() => setStep('preview')}
+        // Saving the target is what ends onboarding: the root navigator sees
+        // the new target and swaps this flow out for the roadmap.
+        onDone={() => {}}
         roleId={roleId as string}
       />
     );

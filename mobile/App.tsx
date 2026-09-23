@@ -3,8 +3,7 @@ import { AppState, StyleSheet, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
-import { OnboardingFlow } from './src/screens/onboarding/OnboardingFlow';
-import { RoadmapPreview } from './src/screens/onboarding/RoadmapPreview';
+import { RootNavigator } from './src/navigation/RootNavigator';
 import { processPendingCvEntries } from './src/services/cvQueue';
 import { configureRevenueCat } from './src/services/revenueCat';
 import { useAppStore } from './src/store/useAppStore';
@@ -14,7 +13,6 @@ import { useTheme } from './src/theme/useTheme';
 export default function App() {
   const theme = useTheme();
   const fontsReady = useAppFonts();
-  const hasTargets = useAppStore((state) => state.targets.length > 0);
 
   useEffect(() => {
     configureRevenueCat();
@@ -49,13 +47,14 @@ export default function App() {
 
   return (
     <SafeAreaProvider>
-      {/* Each onboarding/preview screen applies its own safe-area insets —
-          this wrapper only sets the background so there's no gap around them. */}
+      {/* Each screen applies its own safe-area insets — this wrapper only sets
+          the background so there's no gap around them. */}
       <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
+        {/* Screens with a dark header block override this with their own. */}
         <StatusBar style={theme.mode === 'dark' ? 'light' : 'dark'} />
         {/* Nothing renders until the fonts are in — typography is the loudest
             part of this design and swapping it in late looks broken. */}
-        {!fontsReady ? null : hasTargets ? <RoadmapPreview /> : <OnboardingFlow />}
+        {fontsReady ? <RootNavigator /> : null}
       </View>
     </SafeAreaProvider>
   );

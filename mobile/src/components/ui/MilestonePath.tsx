@@ -6,6 +6,7 @@ import Animated, {
   useSharedValue,
   withTiming,
 } from 'react-native-reanimated';
+import Svg, { Path } from 'react-native-svg';
 
 import { motion, radii, spacing, typography, type CategoryKey, type Theme } from '../../theme/tokens';
 import { useTheme } from '../../theme/useTheme';
@@ -20,6 +21,8 @@ export interface MilestoneItem {
   status: TaskStatus;
   /** Supporting line under the title, e.g. the done-when condition. */
   detail?: string;
+  /** Status line under the title, e.g. "Med · In progress · 2/4 steps". */
+  meta?: string;
   category?: CategoryKey;
 }
 
@@ -99,12 +102,26 @@ function MilestoneRow({
 
   const content = (
     <View style={[styles.content, isCurrent && styles.currentCard]}>
-      <Text style={[styles.title, item.status === 'done' && styles.titleDone]}>{item.title}</Text>
-      {item.detail ? <Text style={styles.detail}>{item.detail}</Text> : null}
-      {item.category ? (
-        <View style={styles.chipRow}>
-          <CategoryChip category={item.category} />
-        </View>
+      <View style={styles.copy}>
+        <Text style={[styles.title, item.status === 'done' && styles.titleDone]}>{item.title}</Text>
+        {item.meta ? <Text style={styles.detail}>{item.meta}</Text> : null}
+        {item.detail ? <Text style={styles.detail}>{item.detail}</Text> : null}
+        {item.category ? (
+          <View style={styles.chipRow}>
+            <CategoryChip category={item.category} />
+          </View>
+        ) : null}
+      </View>
+      {isCurrent && onPress ? (
+        <Svg fill="none" height={20} viewBox="0 0 24 24" width={20}>
+          <Path
+            d="M9 5 L16 12 L9 19"
+            stroke={theme.colors.textMuted}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth={2}
+          />
+        </Svg>
       ) : null}
     </View>
   );
@@ -125,8 +142,9 @@ function MilestoneRow({
       {onPress ? (
         <Animated.View style={[styles.contentWrapper, press.style]}>
           <Pressable
-            accessibilityLabel={item.title}
+            accessibilityLabel={item.meta ? `${item.title}. ${item.meta}` : item.title}
             accessibilityRole="button"
+            android_ripple={{ color: theme.colors.border }}
             onPress={onPress}
             onPressIn={press.onPressIn}
             onPressOut={press.onPressOut}
@@ -166,8 +184,14 @@ const createStyles = (theme: Theme) =>
       paddingVertical: spacing.xs,
     },
     content: {
-      gap: spacing.xs,
+      alignItems: 'center',
+      flexDirection: 'row',
+      gap: spacing.sm,
       paddingVertical: spacing.md,
+    },
+    copy: {
+      flex: 1,
+      gap: spacing.xs,
     },
     currentCard: {
       backgroundColor: theme.colors.surface,

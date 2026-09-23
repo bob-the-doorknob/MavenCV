@@ -2,7 +2,15 @@ import { useMemo } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import Animated from 'react-native-reanimated';
 
-import { categoryTints, radii, spacing, typography, type CategoryKey, type Theme } from '../../theme/tokens';
+import {
+  categoryTints,
+  headerColors,
+  radii,
+  spacing,
+  typography,
+  type CategoryKey,
+  type Theme,
+} from '../../theme/tokens';
 import { useTheme } from '../../theme/useTheme';
 import { usePressScale } from './usePressScale';
 
@@ -14,28 +22,40 @@ interface ChipProps {
   tone?: ChipTone;
   selected?: boolean;
   disabled?: boolean;
+  /** Set inside the dark header block, where ink text would disappear. */
+  onDark?: boolean;
   /** Omit for a read-only chip. */
   onPress?: () => void;
 }
 
 const HIT_SLOP = { top: 8, bottom: 8, left: 4, right: 4 };
 
-export function Chip({ label, tone = 'neutral', selected = false, disabled = false, onPress }: ChipProps) {
+export function Chip({
+  label,
+  tone = 'neutral',
+  selected = false,
+  disabled = false,
+  onDark = false,
+  onPress,
+}: ChipProps) {
   const theme = useTheme();
   const styles = useMemo(() => createStyles(theme), [theme]);
   const press = usePressScale();
   const tint = tone === 'neutral' ? undefined : categoryTints[theme.mode][tone];
 
+  const neutralStyle = onDark ? styles.onDark : styles.neutral;
+  const neutralSelectedStyle = onDark ? styles.onDarkSelected : styles.neutralSelected;
+
   const chipStyle = [
     styles.chip,
-    tint ? { backgroundColor: tint.background, borderColor: tint.background } : styles.neutral,
-    selected && (tint ? styles.tintSelected : styles.neutralSelected),
+    tint ? { backgroundColor: tint.background, borderColor: tint.background } : neutralStyle,
+    selected && (tint ? styles.tintSelected : neutralSelectedStyle),
     disabled && styles.disabled,
   ];
   const labelStyle = [
     styles.label,
-    tint ? { color: tint.text } : styles.neutralLabel,
-    selected && !tint && styles.neutralLabelSelected,
+    tint ? { color: tint.text } : onDark ? styles.onDarkLabel : styles.neutralLabel,
+    selected && !tint && (onDark ? styles.onDarkLabelSelected : styles.neutralLabelSelected),
   ];
 
   if (!onPress) {
@@ -84,6 +104,20 @@ const createStyles = (theme: Theme) =>
     neutralSelected: {
       backgroundColor: theme.colors.textPrimary,
       borderColor: theme.colors.textPrimary,
+    },
+    onDark: {
+      backgroundColor: headerColors.control,
+      borderColor: headerColors.control,
+    },
+    onDarkSelected: {
+      backgroundColor: headerColors.text,
+      borderColor: headerColors.text,
+    },
+    onDarkLabel: {
+      color: headerColors.text,
+    },
+    onDarkLabelSelected: {
+      color: headerColors.background,
     },
     tintSelected: {
       borderColor: theme.colors.textPrimary,

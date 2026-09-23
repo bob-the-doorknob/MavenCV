@@ -1,59 +1,56 @@
+import { useMemo } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { radii, spacing, typography, type Theme } from '../theme/tokens';
+import { EmptyState, SectionLabel } from '../components/ui';
+import { spacing, typography, type Theme } from '../theme/tokens';
 import { useTheme } from '../theme/useTheme';
-import type { CvEntry } from '../types';
 
-interface CvVaultScreenProps {
-  entries: readonly CvEntry[];
-}
-
-export function CvVaultScreen({ entries }: CvVaultScreenProps) {
+/** Placeholder until the real CV vault lands — the tab exists so navigation is complete. */
+export function CvVaultScreen() {
   const theme = useTheme();
-  const styles = createStyles(theme);
+  const insets = useSafeAreaInsets();
+  const styles = useMemo(() => createStyles(theme), [theme]);
 
   return (
-    <ScrollView contentContainerStyle={styles.container}>
-      <Text style={styles.heading}>CV Vault</Text>
-      {entries.length === 0 ? (
-        <Text style={styles.empty}>Completed milestones will become reusable CV lines here.</Text>
-      ) : (
-        entries.map((entry) => (
-          <View key={entry.id} style={styles.entry}>
-            <Text style={styles.entryText}>{entry.text}</Text>
-          </View>
-        ))
-      )}
+    <ScrollView
+      contentContainerStyle={[
+        styles.content,
+        { paddingTop: insets.top + spacing.lg, paddingBottom: insets.bottom + spacing.xl },
+      ]}
+      style={styles.screen}
+    >
+      <View style={styles.header}>
+        <SectionLabel>Your CV</SectionLabel>
+        <Text style={styles.title}>CV vault</Text>
+      </View>
+      <EmptyState
+        message="Your CV bullets will appear here as you finish tasks"
+        title="Nothing here yet"
+      />
     </ScrollView>
   );
 }
 
 const createStyles = (theme: Theme) =>
   StyleSheet.create({
-    container: {
-      gap: spacing.md,
-      padding: spacing.lg,
+    screen: {
+      backgroundColor: theme.colors.background,
+      flex: 1,
     },
-    heading: {
+    content: {
+      gap: spacing.xl,
+      paddingHorizontal: spacing.lg,
+    },
+    header: {
+      gap: spacing.sm,
+    },
+    title: {
       color: theme.colors.textPrimary,
-      fontSize: typography.heading.fontSize,
-      fontWeight: '700',
-    },
-    empty: {
-      color: theme.colors.textSecondary,
-      fontSize: typography.body.fontSize,
-      lineHeight: 24,
-    },
-    entry: {
-      backgroundColor: theme.colors.surface,
-      borderColor: theme.colors.border,
-      borderRadius: radii.md,
-      borderWidth: 1,
-      padding: spacing.md,
-    },
-    entryText: {
-      color: theme.colors.textPrimary,
-      fontSize: typography.body.fontSize,
-      lineHeight: 24,
+      fontFamily: typography.title.fontFamily,
+      fontSize: typography.title.fontSize,
+      fontWeight: typography.title.fontWeight,
+      letterSpacing: typography.title.letterSpacing,
+      lineHeight: typography.title.lineHeight,
     },
   });

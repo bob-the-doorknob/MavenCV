@@ -1,6 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import {
-  BackHandler,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -15,7 +14,6 @@ import { Button, TextField } from '../../components/ui';
 import { CUSTOM_ROLE_ID, rolePresets, type RoleCategory, type RolePreset } from '../../data/roles';
 import { radii, spacing, typography, type Theme } from '../../theme/tokens';
 import { useTheme } from '../../theme/useTheme';
-import { UiGalleryScreen } from '../UiGalleryScreen';
 
 const MAX_CUSTOM_TITLE_LENGTH = 60;
 
@@ -51,37 +49,6 @@ export function RoleScreen({
   const theme = useTheme();
   const insets = useSafeAreaInsets();
   const styles = useMemo(() => createStyles(theme), [theme]);
-  const [showGallery, setShowGallery] = useState(false);
-
-  // Hardware back closes the dev gallery instead of exiting the app.
-  useEffect(() => {
-    if (!showGallery) {
-      return undefined;
-    }
-    const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
-      setShowGallery(false);
-      return true;
-    });
-    return () => subscription.remove();
-  }, [showGallery]);
-
-  if (showGallery) {
-    return (
-      <View style={[styles.screen, { paddingTop: insets.top }]}>
-        <Pressable
-          accessibilityLabel="Close UI gallery"
-          accessibilityRole="button"
-          android_ripple={{ color: theme.colors.border }}
-          onPress={() => setShowGallery(false)}
-          style={styles.devLinkContainer}
-        >
-          <Text style={styles.devLink}>{'←'} Close UI Gallery</Text>
-        </Pressable>
-        <UiGalleryScreen />
-      </View>
-    );
-  }
-
   return (
     <KeyboardAvoidingView
       behavior={Platform.OS === 'android' ? 'height' : 'padding'}
@@ -138,17 +105,6 @@ export function RoleScreen({
             ) : null}
           </View>
 
-          {__DEV__ ? (
-            <Pressable
-              accessibilityLabel="Open UI gallery"
-              accessibilityRole="button"
-              android_ripple={{ color: theme.colors.border }}
-              onPress={() => setShowGallery(true)}
-              style={styles.devLinkContainer}
-            >
-              <Text style={styles.devLink}>UI Gallery (dev)</Text>
-            </Pressable>
-          ) : null}
         </ScrollView>
 
         <View style={[styles.footer, { paddingBottom: insets.bottom }]}>
@@ -218,14 +174,5 @@ const createStyles = (theme: Theme) =>
       borderTopColor: theme.colors.border,
       borderTopWidth: 1,
       padding: spacing.lg,
-    },
-    devLinkContainer: {
-      alignSelf: 'center',
-      padding: spacing.sm,
-    },
-    devLink: {
-      color: theme.colors.textMuted,
-      fontFamily: typography.caption.fontFamily,
-      fontSize: typography.caption.fontSize,
     },
   });
