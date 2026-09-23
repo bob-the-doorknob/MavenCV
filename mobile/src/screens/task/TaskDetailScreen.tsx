@@ -110,6 +110,19 @@ export function TaskDetailScreen() {
     ]);
   };
 
+  /** Swaps this milestone with its neighbour and hands the whole order to the store. */
+  const move = (offset: -1 | 1): void => {
+    const next = index + offset;
+    if (next < 0 || next >= roadmap.length) {
+      return;
+    }
+    const ids = roadmap.map((candidate) => candidate.id);
+    const moved = ids[index] as string;
+    ids.splice(index, 1);
+    ids.splice(next, 0, moved);
+    useAppStore.getState().reorderTasks(ids);
+  };
+
   const addStep = (): void => {
     if (!newStep.trim()) {
       return;
@@ -159,6 +172,7 @@ export function TaskDetailScreen() {
           <StatusPill status={task.status} />
           <Chip label={`${priorityLabels[task.priority]} priority`} />
           {isFocus ? <Chip label="This week's focus" /> : null}
+          {task.createdByUser ? <Chip label="Added by you" /> : null}
         </View>
 
         <Text style={styles.title}>{task.title}</Text>
@@ -288,6 +302,18 @@ export function TaskDetailScreen() {
       </View>
 
       <Sheet onClose={() => setActionsVisible(false)} title="Milestone actions" visible={actionsVisible}>
+        <Button
+          disabled={index <= 0}
+          label="Move up"
+          onPress={() => move(-1)}
+          variant="secondary"
+        />
+        <Button
+          disabled={index >= roadmap.length - 1}
+          label="Move down"
+          onPress={() => move(1)}
+          variant="secondary"
+        />
         <Button
           label="Edit"
           onPress={() => {

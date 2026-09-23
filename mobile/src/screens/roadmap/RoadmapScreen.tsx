@@ -5,6 +5,7 @@ import { StatusBar } from 'expo-status-bar';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import Animated from 'react-native-reanimated';
+import Svg, { Path } from 'react-native-svg';
 
 import {
   Card,
@@ -22,13 +23,14 @@ import { usePressScale } from '../../components/ui/usePressScale';
 import { levelLabels, resolveRoleTitle } from '../../data/roles';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { useActiveTarget, useAppStore, useFocusTasks, useReadiness } from '../../store/useAppStore';
-import { headerColors, radii, spacing, typography, type Theme } from '../../theme/tokens';
+import { headerColors, minTouchTarget, radii, spacing, typography, type Theme } from '../../theme/tokens';
 import { useTheme } from '../../theme/useTheme';
 import { countSteps, orderRoadmap, taskMetaLine } from '../../utils/groupTasks';
 import { categoryKeyForRole } from '../../utils/roleCategory';
 import { fits, scheduleLabel } from '../../utils/schedule';
 import { formatDueDate, formatMonthYear, formatWeeksLeft } from '../../utils/targetDate';
 import type { RoadmapTask, Target } from '../../types';
+import { AddMilestoneSheet } from './AddMilestoneSheet';
 import { DoesNotFitSheet } from './DoesNotFitSheet';
 import { FocusPickerSheet } from './FocusPickerSheet';
 import { ReadyBySheet } from './ReadyBySheet';
@@ -77,6 +79,7 @@ export function RoadmapScreen() {
   const [scoringVisible, setScoringVisible] = useState(false);
   const [focusPickerVisible, setFocusPickerVisible] = useState(false);
   const [readyByVisible, setReadyByVisible] = useState(false);
+  const [addMilestoneVisible, setAddMilestoneVisible] = useState(false);
   const [trimVisible, setTrimVisible] = useState(false);
   const [misfit, setMisfit] = useState<{ neededWeeks: number; availableWeeks: number } | null>(null);
 
@@ -216,6 +219,7 @@ export function RoadmapScreen() {
                 onPressItem={openTask}
                 {...(ordered.currentId ? { currentId: ordered.currentId } : {})}
               />
+              <AddMilestoneRow onPress={() => setAddMilestoneVisible(true)} />
             </View>
           </>
         )}
@@ -290,7 +294,39 @@ export function RoadmapScreen() {
         tasks={roadmap}
         visible={trimVisible}
       />
+
+      <AddMilestoneSheet onClose={() => setAddMilestoneVisible(false)} visible={addMilestoneVisible} />
     </View>
+  );
+}
+
+function AddMilestoneRow({ onPress }: { onPress: () => void }) {
+  const theme = useTheme();
+  const styles = useMemo(() => createStyles(theme), [theme]);
+  const press = usePressScale();
+
+  return (
+    <Animated.View style={press.style}>
+      <Pressable
+        accessibilityLabel="Add milestone"
+        accessibilityRole="button"
+        android_ripple={{ color: theme.colors.border }}
+        onPress={onPress}
+        onPressIn={press.onPressIn}
+        onPressOut={press.onPressOut}
+        style={styles.addMilestoneRow}
+      >
+        <Svg fill="none" height={20} viewBox="0 0 24 24" width={20}>
+          <Path
+            d="M12 5 V19 M5 12 H19"
+            stroke={theme.colors.textPrimary}
+            strokeLinecap="round"
+            strokeWidth={2}
+          />
+        </Svg>
+        <Text style={styles.addMilestoneLabel}>Add milestone</Text>
+      </Pressable>
+    </Animated.View>
   );
 }
 
@@ -439,6 +475,20 @@ const createStyles = (theme: Theme) =>
       alignItems: 'center',
       flexDirection: 'row',
       justifyContent: 'space-between',
+    },
+    addMilestoneRow: {
+      alignItems: 'center',
+      flexDirection: 'row',
+      gap: spacing.md,
+      marginLeft: spacing.xs,
+      minHeight: minTouchTarget,
+      paddingVertical: spacing.sm,
+    },
+    addMilestoneLabel: {
+      color: theme.colors.textPrimary,
+      fontFamily: typography.label.fontFamily,
+      fontSize: typography.body.fontSize,
+      fontWeight: '600',
     },
     readyByRow: {
       alignItems: 'center',

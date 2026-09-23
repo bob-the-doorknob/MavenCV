@@ -23,6 +23,8 @@ export interface RoadmapTask {
   estimatedWeeks: number;
   /** ISO date this milestone should be finished by, set by the scheduler. */
   targetDate?: string;
+  /** True for milestones the user added themselves, rather than generated ones. */
+  createdByUser?: boolean;
   priority: TaskPriority;
   status: TaskStatus;
   startedAt?: string;

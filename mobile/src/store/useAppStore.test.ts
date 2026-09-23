@@ -353,6 +353,147 @@ describe('migrate', () => {
   });
 });
 
+describe('addMilestone', () => {
+  const roadmapOf = (): RoadmapTask[] => useAppStore.getState().targets[0]?.roadmap ?? [];
+
+  it('appends a not-started milestone marked as user-created', () => {
+    const { addTarget, addMilestone } = useAppStore.getState();
+    addTarget({ ...baseTargetInput, roadmap: [task({ id: 'a' })] });
+
+    const id = addMilestone({
+      title: 'Ship 1 side project',
+      doneWhen: 'Deployed with 3 users',
+      priority: 3,
+      estimatedWeeks: 4,
+    });
+
+    const added = roadmapOf()[1];
+    expect(roadmapOf().map((entry) => entry.id)).toEqual(['a', id]);
+    expect(added).toMatchObject({
+      title: 'Ship 1 side project',
+      doneWhen: 'Deployed with 3 users',
+      priority: 3,
+      estimatedWeeks: 4,
+      status: 'not_started',
+      createdByUser: true,
+      steps: [],
+    });
+  });
+
+  it('trims the title and done-when', () => {
+    const { addTarget, addMilestone } = useAppStore.getState();
+    addTarget({ ...baseTargetInput, roadmap: [] });
+
+    addMilestone({
+      title: '  Ship 1 side project  ',
+      doneWhen: '  Deployed  ',
+      priority: 2,
+      estimatedWeeks: 2,
+    });
+
+    expect(roadmapOf()[0]).toMatchObject({ title: 'Ship 1 side project', doneWhen: 'Deployed' });
+  });
+
+  it('clamps the estimate into the 1-8 week range', () => {
+    const { addTarget, addMilestone } = useAppStore.getState();
+    addTarget({ ...baseTargetInput, roadmap: [] });
+
+    addMilestone({ title: 'Long one', doneWhen: '', priority: 2, estimatedWeeks: 99 });
+
+    expect(roadmapOf()[0]?.estimatedWeeks).toBe(8);
+  });
+
+  it('counts towards the readiness score like any other task', () => {
+    const { addTarget, addMilestone } = useAppStore.getState();
+    addTarget({ ...baseTargetInput, roadmap: [task({ id: 'a', priority: 1, status: 'done' })] });
+    expect(calculateReadiness(roadmapOf())).toBe(100);
+
+    addMilestone({ title: 'New work', doneWhen: '', priority: 1, estimatedWeeks: 2 });
+
+    expect(calculateReadiness(roadmapOf())).toBe(50);
+  });
+
+  it('schedules the new milestone when a target date is set', () => {
+    const { addTarget, setTargetDate, applySchedule, addMilestone } = useAppStore.getState();
+    addTarget({ ...baseTargetInput, roadmap: [task({ id: 'a', estimatedWeeks: 2 })] });
+    setTargetDate(new Date(Date.now() + 30 * 7 * 86_400_000).toISOString());
+    applySchedule('comfortable');
+
+    addMilestone({ title: 'New work', doneWhen: '', priority: 2, estimatedWeeks: 3 });
+
+    expect(roadmapOf()[1]?.targetDate).toEqual(expect.any(String));
+  });
+
+  it('leaves dates unset when there is no target date', () => {
+    const { addTarget, addMilestone } = useAppStore.getState();
+    addTarget({ ...baseTargetInput, roadmap: [] });
+
+    addMilestone({ title: 'New work', doneWhen: '', priority: 2, estimatedWeeks: 3 });
+
+    expect(roadmapOf()[0]?.targetDate).toBeUndefined();
+  });
+});
+
+describe('reorderTasks', () => {
+  const idsOf = (): string[] => (useAppStore.getState().targets[0]?.roadmap ?? []).map((t) => t.id);
+
+  const seedThree = (): void => {
+    useAppStore.getState().addTarget({
+      ...baseTargetInput,
+      roadmap: [task({ id: 'a' }), task({ id: 'b' }), task({ id: 'c' })],
+    });
+  };
+
+  it('applies the given order', () => {
+    seedThree();
+
+    useAppStore.getState().reorderTasks(['c', 'a', 'b']);
+
+    expect(idsOf()).toEqual(['c', 'a', 'b']);
+  });
+
+  it('keeps omitted tasks, in their original order, at the end', () => {
+    seedThree();
+
+    useAppStore.getState().reorderTasks(['c']);
+
+    expect(idsOf()).toEqual(['c', 'a', 'b']);
+  });
+
+  it('ignores unknown ids', () => {
+    seedThree();
+
+    useAppStore.getState().reorderTasks(['ghost', 'b', 'a']);
+
+    expect(idsOf()).toEqual(['b', 'a', 'c']);
+  });
+
+  it('does nothing to an empty order', () => {
+    seedThree();
+
+    useAppStore.getState().reorderTasks([]);
+
+    expect(idsOf()).toEqual(['a', 'b', 'c']);
+  });
+
+  it('re-dates the roadmap when a target date is set', () => {
+    const { addTarget, setTargetDate, applySchedule, reorderTasks } = useAppStore.getState();
+    addTarget({
+      ...baseTargetInput,
+      roadmap: [task({ id: 'a', estimatedWeeks: 1 }), task({ id: 'b', estimatedWeeks: 6 })],
+    });
+    setTargetDate(new Date(Date.now() + 30 * 7 * 86_400_000).toISOString());
+    applySchedule('comfortable');
+    const firstDateBefore = useAppStore.getState().targets[0]?.roadmap[0]?.targetDate;
+
+    reorderTasks(['b', 'a']);
+
+    // 'b' now runs first, so the first slot's due date moves out by its longer estimate.
+    expect(useAppStore.getState().targets[0]?.roadmap[0]?.id).toBe('b');
+    expect(useAppStore.getState().targets[0]?.roadmap[0]?.targetDate).not.toBe(firstDateBefore);
+  });
+});
+
 describe('step actions', () => {
   const seed = (): void => {
     const { addTarget } = useAppStore.getState();

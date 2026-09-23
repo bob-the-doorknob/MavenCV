@@ -102,6 +102,7 @@ const isRoadmapTask = (value: unknown): value is PersistedRoadmapTask =>
   isOptional(value.steps, isTaskStepArray) &&
   isOptional(value.estimatedWeeks, isNumber) &&
   isOptional(value.targetDate, isString) &&
+  isOptional(value.createdByUser, isBoolean) &&
   isOptional(value.startedAt, isString) &&
   isOptional(value.completedAt, isString) &&
   isOptional(value.notes, isString) &&
@@ -392,21 +393,25 @@ export const useAppStore = create<AppState>()(
           estimatedWeeks: clampEstimatedWeeks(input.estimatedWeeks),
           steps: [],
           status: 'not_started',
+          createdByUser: true,
         };
         set((state) => ({
-          targets: mapActiveRoadmap(state.targets, state.activeTargetId, (tasks) => [...tasks, milestone]),
+          targets: mapActiveTarget(state.targets, state.activeTargetId, (target) =>
+            withSchedule({ ...target, roadmap: [...target.roadmap, milestone] }, Date.now()),
+          ),
         }));
         return id;
       },
 
+      // Order drives the schedule, so a reorder re-dates everything after it.
       reorderTasks: (taskIds) =>
         set((state) => ({
-          targets: mapActiveRoadmap(state.targets, state.activeTargetId, (tasks) => {
+          targets: mapActiveTarget(state.targets, state.activeTargetId, (target) => {
             const ordered = taskIds
-              .map((id) => tasks.find((task) => task.id === id))
+              .map((id) => target.roadmap.find((task) => task.id === id))
               .filter((task): task is RoadmapTask => task !== undefined);
-            const rest = tasks.filter((task) => !taskIds.includes(task.id));
-            return [...ordered, ...rest];
+            const rest = target.roadmap.filter((task) => !taskIds.includes(task.id));
+            return withSchedule({ ...target, roadmap: [...ordered, ...rest] }, Date.now());
           }),
         })),
 
