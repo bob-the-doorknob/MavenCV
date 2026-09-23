@@ -5,6 +5,12 @@
     "version": "0.1.0",
     "orientation": "portrait",
     "userInterfaceStyle": "light",
+    "owner": "xphalo",
+    "extra": {
+      "eas": {
+        "projectId": "05b97eec-bd23-49dc-b44c-c17651cca06f"
+      }
+    },
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.trajectory.app"
