@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "Trajectory",
-    "slug": "trajectory",
+    "name": "Maven",
+    "slug": "maven",
     "version": "0.1.0",
     "orientation": "portrait",
     "userInterfaceStyle": "light",
@@ -13,10 +13,10 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.trajectory.app"
+      "bundleIdentifier": "com.maven.app"
     },
     "android": {
-      "package": "com.trajectory.app",
+      "package": "com.maven.app",
       "predictiveBackGestureEnabled": false
     }
   }

@@ -13,7 +13,7 @@ export function PaywallModal({ visible, onClose, onUpgrade }: PaywallModalProps)
     <Modal animationType="fade" onRequestClose={onClose} transparent visible={visible}>
       <View style={styles.overlay}>
         <View style={styles.card}>
-          <Text style={styles.title}>Trajectory Pro</Text>
+          <Text style={styles.title}>Maven Pro</Text>
           <Text style={styles.body}>
             Unlock multiple target roles and unlimited CV line exports for $4.99/month.
           </Text>
