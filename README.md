@@ -1,6 +1,6 @@
-# Trajectory
+# Maven
 
-Trajectory is an offline-first mobile career roadmap companion for university
+Maven is an offline-first mobile career roadmap companion for university
 students. This repository contains an Expo React Native client and a thin Cloud
 Run backend that will own all Gemini interactions.
 
@@ -172,8 +172,8 @@ Build the backend container from the repository root so npm workspaces and the
 root lockfile are available:
 
 ```bash
-docker build -f backend/Dockerfile -t trajectory-backend .
-docker run --env-file .env -p 8080:8080 trajectory-backend
+docker build -f backend/Dockerfile -t maven-backend .
+docker run --env-file .env -p 8080:8080 maven-backend
 ```
 
 Cloud Run supplies `PORT`; the server defaults to `8080` locally.

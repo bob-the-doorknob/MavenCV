@@ -1,17 +1,23 @@
 {
   "expo": {
-    "name": "Trajectory",
-    "slug": "trajectory",
+    "name": "Maven",
+    "slug": "maven",
     "version": "0.1.0",
     "orientation": "portrait",
     "userInterfaceStyle": "light",
+    "owner": "xphalo",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.trajectory.app"
+      "bundleIdentifier": "com.maven.app"
     },
     "android": {
-      "package": "com.trajectory.app",
+      "package": "com.maven.app",
       "predictiveBackGestureEnabled": false
+    },
+    "extra": {
+      "eas": {
+        "projectId": "0bce248e-277a-4699-ab5d-02c393fe165d"
+      }
     }
   }
 }
