@@ -8,6 +8,7 @@ export const createApp = (dependencies: AppDependencies = {}): Express => {
   const app = express();
 
   app.disable('x-powered-by');
+  app.use('/api/cv-profile', express.json({ limit: '3mb' }));
   app.use(express.json({ limit: '32kb' }));
   app.get('/health', (_request, response) => {
     response.status(200).json({
@@ -16,12 +17,16 @@ export const createApp = (dependencies: AppDependencies = {}): Express => {
     });
   });
   app.use('/api', createAiRouter(dependencies));
-  app.use(malformedJsonHandler);
+  app.use(requestBodyErrorHandler);
 
   return app;
 };
 
-const malformedJsonHandler: ErrorRequestHandler = (error, _request, response, next) => {
+const requestBodyErrorHandler: ErrorRequestHandler = (error, _request, response, next) => {
+  if (typeof error === 'object' && error !== null && 'status' in error && error.status === 413) {
+    response.status(413).json({ error: { code: 'REQUEST_TOO_LARGE', message: 'Request body is too large.' } });
+    return;
+  }
   if (isMalformedJsonError(error)) {
     response.status(400).json({
       error: {

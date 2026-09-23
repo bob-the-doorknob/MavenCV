@@ -1,6 +1,26 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { ApiError, extractProfile, generateRoadmap, mapCvBulletResponse, mapRoadmapResponse } from './api';
+vi.mock('./auth', () => ({ getAuthToken: async () => 'test-id-token' }));
+
+import {
+  ApiError,
+  extractProfile,
+  fetchRoleCatalog,
+  generateCvBullet,
+  generateRoadmap,
+  mapCvBulletResponse,
+  mapRoadmapResponse,
+} from './api';
+
+/** Captures the single fetch call a request makes. */
+const stubFetch = (response: Partial<Response> & { json: () => Promise<unknown> }) => {
+  const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200, ...response });
+  vi.stubGlobal('fetch', fetchMock);
+  return fetchMock;
+};
+
+const bodyOf = (fetchMock: ReturnType<typeof vi.fn>): Record<string, unknown> =>
+  JSON.parse(String((fetchMock.mock.calls[0]?.[1] as RequestInit).body)) as Record<string, unknown>;
 
 describe('mapRoadmapResponse', () => {
   it('fills safe defaults for fields the backend does not send yet', () => {
@@ -175,7 +195,7 @@ describe('generateRoadmap (real mode) error mapping', () => {
 });
 
 describe('extractProfile (mock mode)', () => {
-  const file = { uri: 'file:///tmp/cv.pdf', name: 'cv.pdf' };
+  const file = { pdfBase64: 'JVBERi0xLjQK' };
   const EXPERIENCE_MIN_SAMPLE_LENGTH = 100;
 
   beforeEach(() => {
@@ -224,5 +244,153 @@ describe('extractProfile (mock mode)', () => {
     const assertion = expect(promise).rejects.toMatchObject({ kind: 'server' });
     await vi.advanceTimersByTimeAsync(2_000);
     await assertion;
+  });
+});
+
+describe('real-mode request contracts', () => {
+  beforeEach(() => {
+    vi.stubEnv('EXPO_PUBLIC_USE_MOCK_API', 'false');
+    vi.stubEnv('EXPO_PUBLIC_API_BASE_URL', 'https://api.example.com');
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+  });
+
+  it('sends the auth token on AI requests', async () => {
+    const fetchMock = stubFetch({ json: async () => ({ tasks: [] }) });
+
+    await generateRoadmap({ roleId: 'software-engineer', level: 'internship', experience: 'Built APIs.' });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://api.example.com/api/roadmap',
+      expect.objectContaining({
+        method: 'POST',
+        headers: expect.objectContaining({ Authorization: 'Bearer test-id-token' }),
+      }),
+    );
+  });
+
+  it('sends the roadmap body normalizeRoadmapInput accepts, folding level into experience', async () => {
+    const fetchMock = stubFetch({ json: async () => ({ tasks: [] }) });
+
+    await generateRoadmap({
+      roleId: 'software-engineer',
+      level: 'internship',
+      employer: 'Example Corp',
+      experience: 'Built APIs.',
+    });
+
+    const body = bodyOf(fetchMock);
+    expect(body).toEqual({
+      experience: expect.stringContaining('Built APIs.'),
+      targetRole: { id: 'software-engineer', title: 'Software Engineer', employer: 'Example Corp' },
+    });
+    expect(body.experience).toContain('internship');
+  });
+
+  it('omits targetRole.id for a custom role, since the backend would reject it', async () => {
+    const fetchMock = stubFetch({ json: async () => ({ tasks: [] }) });
+
+    await generateRoadmap({
+      roleId: 'custom',
+      customTitle: 'Robotics Engineer',
+      level: 'entry-level',
+      experience: 'Built robots.',
+    });
+
+    const targetRole = bodyOf(fetchMock).targetRole as Record<string, unknown>;
+    expect(targetRole).not.toHaveProperty('id');
+    expect(targetRole.title).toBe('Robotics Engineer');
+  });
+
+  it('sends the CV bullet body normalizeCvBulletInput accepts, dropping level', async () => {
+    const fetchMock = stubFetch({ json: async () => ({ bullet: 'Built 1 thing.' }) });
+
+    await generateCvBullet({
+      taskTitle: 'Build 1 API',
+      notes: 'Shipped 5 endpoints.',
+      roleTitle: 'Software Engineer',
+      level: 'internship',
+    });
+
+    expect(bodyOf(fetchMock)).toEqual({
+      taskTitle: 'Build 1 API',
+      notes: 'Shipped 5 endpoints.',
+      targetRole: 'Software Engineer',
+    });
+  });
+
+  it('posts the CV profile as base64 to /api/cv-profile and returns questions', async () => {
+    const fetchMock = stubFetch({
+      json: async () => ({ experience: 'Built APIs.', questions: ['Which database?'] }),
+    });
+
+    const result = await extractProfile({ pdfBase64: 'JVBERi0xLjQK' }, 'software-engineer');
+
+    expect(fetchMock.mock.calls[0]?.[0]).toBe('https://api.example.com/api/cv-profile');
+    expect(bodyOf(fetchMock)).toEqual({ pdfBase64: 'JVBERi0xLjQK', targetRoleId: 'software-engineer' });
+    expect(result).toEqual({ experienceText: 'Built APIs.', questions: ['Which database?'] });
+  });
+
+  it('refuses a CV upload for a role the backend does not know', async () => {
+    stubFetch({ json: async () => ({}) });
+
+    await expect(extractProfile({ pdfBase64: 'JVBERi0xLjQK' }, 'custom')).rejects.toMatchObject({
+      kind: 'invalid_response',
+    });
+  });
+
+  it('loads the role catalog without an auth header', async () => {
+    const fetchMock = stubFetch({ json: async () => ({ categories: [{ id: 'data-ai', title: 'Data & AI', roles: [] }] }) });
+
+    await expect(fetchRoleCatalog()).resolves.toEqual([{ id: 'data-ai', title: 'Data & AI', roles: [] }]);
+    expect(fetchMock).toHaveBeenCalledWith('https://api.example.com/api/roles');
+  });
+});
+
+describe('backend error codes map to ApiError kinds', () => {
+  beforeEach(() => {
+    vi.stubEnv('EXPO_PUBLIC_USE_MOCK_API', 'false');
+    vi.stubEnv('EXPO_PUBLIC_API_BASE_URL', 'https://api.example.com');
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+  });
+
+  const roadmapInput = { roleId: 'software-engineer', level: 'internship' as const, experience: 'Built 1 app.' };
+
+  it.each([
+    [401, 'AUTHENTICATION_REQUIRED', 'auth'],
+    [429, 'RATE_LIMIT_EXCEEDED', 'rate_limited'],
+    [502, 'ROADMAP_GENERATION_FAILED', 'server'],
+    [502, 'CV_BULLET_GENERATION_FAILED', 'server'],
+    [502, 'CV_PROFILE_GENERATION_FAILED', 'server'],
+    [503, 'SERVICE_UNAVAILABLE', 'server'],
+    [500, 'INTERNAL_ERROR', 'server'],
+    [400, 'INVALID_ROADMAP_INPUT', 'invalid_response'],
+  ])('maps %i %s to %s', async (status, code, kind) => {
+    stubFetch({
+      ok: false,
+      status,
+      json: async () => ({ error: { code, message: 'Backend said no.' } }),
+    });
+
+    await expect(generateRoadmap(roadmapInput)).rejects.toMatchObject({ kind });
+  });
+
+  it('falls back to the status when the error body is not JSON', async () => {
+    stubFetch({
+      ok: false,
+      status: 503,
+      json: async () => {
+        throw new SyntaxError('not json');
+      },
+    });
+
+    await expect(generateRoadmap(roadmapInput)).rejects.toMatchObject({ kind: 'server' });
   });
 });

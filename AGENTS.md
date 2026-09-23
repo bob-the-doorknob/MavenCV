@@ -9,6 +9,7 @@ This repository contains the source code for **Maven**, a mobile app built for t
 - **ALL AI CALLS VIA BACKEND:** The mobile app must NEVER call Gemini directly. All prompts route through our thin Cloud Run backend.
 - **NO WEB CODE:** This is a mobile app. Do not use DOM elements (`<div>`, `<span>`, `window`, `localStorage`). Use React Native primitives (`<View>`, `<Text>`, `@react-native-async-storage/async-storage`).
 - **NO FEATURE CREEP:** PDF CV upload is allowed ONLY as an optional shortcut that pre-fills the experience text on the onboarding Experience screen. The backend extracts a plain-text experience summary with Gemini and returns it; uploaded files are never stored. Everything after that uses the normal experience text flow. Do not implement social feeds, job boards, or mock interviews. Build ONLY what is in the MVP spec.
+- **CV INTAKE:** Accept a user's CV to extract relevant experience for roadmap setup. Treat extracted claims as unverified until the user reviews them; never infer that an omitted skill is absent.
 
 ---
 

@@ -1,4 +1,5 @@
 import * as DocumentPicker from 'expo-document-picker';
+import { File } from 'expo-file-system';
 
 import { getErrorMessage, type ErrorMessage } from './errorMessages';
 
@@ -54,6 +55,13 @@ export const pickPdf = async (): Promise<PickedFile | null> => {
 
   return { name: asset.name, uri: asset.uri, size };
 };
+
+/**
+ * The backend takes the PDF as base64 JSON, not multipart, so the picked file
+ * is read here. expo-document-picker does the picking; expo-file-system only
+ * reads the bytes.
+ */
+export const readPdfBase64 = async (uri: string): Promise<string> => new File(uri).base64();
 
 const FILE_PICKER_MESSAGES: Readonly<Record<FilePickerErrorReason, ErrorMessage>> = {
   not_pdf: {

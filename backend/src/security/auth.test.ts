@@ -18,10 +18,14 @@ describe('Firebase authentication', () => {
   });
 
   it.each([
+    { uid: 'anonymous-1', firebase: { sign_in_provider: 'anonymous' } },
     { ...verified, email_verified: false },
-    { ...verified, firebase: { sign_in_provider: 'anonymous' } },
-    { ...verified, uid: '' },
-  ])('rejects disallowed account %#', async (account) => {
+  ])('accepts a valid Firebase identity without verified email %#', async (account) => {
+    await expect(authenticateAuthorization('Bearer token', { verifyIdToken: async () => account })).resolves.toEqual({ uid: account.uid });
+  });
+
+  it('rejects an account without a UID', async () => {
+    const account = { ...verified, uid: '' };
     await expect(authenticateAuthorization('Bearer token', { verifyIdToken: async () => account })).rejects.toBeInstanceOf(AuthenticationError);
   });
 

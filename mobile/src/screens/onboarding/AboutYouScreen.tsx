@@ -20,7 +20,7 @@ import type { Level } from '../../data/roles';
 import { levelLabels } from '../../data/roles';
 import { extractProfile } from '../../services/api';
 import type { ErrorMessage } from '../../services/errorMessages';
-import { getFilePickerErrorMessage, pickPdf } from '../../services/filePicker';
+import { getFilePickerErrorMessage, pickPdf, readPdfBase64 } from '../../services/filePicker';
 import { radii, spacing, typography, type Theme } from '../../theme/tokens';
 import { useTheme } from '../../theme/useTheme';
 import { EXPERIENCE_MAX_LENGTH, getExperienceFeedback } from '../../utils/experienceLimits';
@@ -142,7 +142,10 @@ export function AboutYouScreen({
     setPickedFileName(file.name);
     setIsExtracting(true);
     try {
-      const result = await extractProfile({ uri: file.uri, name: file.name }, roleId ?? undefined);
+      // The backend takes the PDF as base64 JSON, so the bytes are read here
+      // and api.ts stays free of native file modules.
+      const pdfBase64 = await readPdfBase64(file.uri);
+      const result = await extractProfile({ pdfBase64 }, roleId ?? undefined);
       onExperienceChange(result.experienceText);
       setMode('write');
       setShowFilledNote(true);

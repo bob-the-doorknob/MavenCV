@@ -129,7 +129,7 @@ export interface RoadmapContentGenerator {
 }
 ```
 
-Use `gemini-3.8-flash`, `responseMimeType: 'application/json'`, and this response
+Use `gemini-3.6-flash`, `responseMimeType: 'application/json'`, and this response
 shape with `minItems: 5`, `maxItems: 7`, all three strings required, and
 `additionalProperties: false` at both object levels:
 
@@ -542,7 +542,7 @@ Add root script:
 
 - [ ] **Step 3: Update product and integration documentation**
 
-In `SPECS.md`, replace Gemini 1.5 with `gemini-3.8-flash` and replace
+In `SPECS.md`, replace Gemini 1.5 with `gemini-3.6-flash` and replace
 "verified industry requirements" with a precise statement that the model uses
 its general knowledge plus repository-authored cross-industry examples, without
 scraped or bundled job datasets.

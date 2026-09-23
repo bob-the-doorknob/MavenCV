@@ -1,9 +1,14 @@
 import type { Level } from '../data/roles';
-import { resolveRoleTitle } from '../data/roles';
+import { findRolePreset, resolveRoleTitle } from '../data/roles';
 import type { RoadmapTask, TaskStep } from '../types';
 import { createId } from '../utils/id';
 import { clampEstimatedWeeks } from '../utils/schedule';
 import { getAuthToken } from './auth';
+
+/** normalizeRoadmapInput rejects an experience longer than this. */
+const MAX_EXPERIENCE_LENGTH = 4_000;
+/** normalizeCvBulletInput rejects a targetRole longer than this. */
+const MAX_TARGET_ROLE_LENGTH = 80;
 
 const ROADMAP_TIMEOUT_MS = 45_000;
 const CV_BULLET_TIMEOUT_MS = 30_000;
@@ -43,7 +48,50 @@ const requireBaseUrl = (): string => {
   return baseUrl.replace(/\/$/u, '');
 };
 
-/** POSTs to the backend with an auth header (when available) and a hard timeout. Shared by the JSON and multipart senders below. */
+/**
+ * The backend answers failures with { error: { code, message } }. Its codes
+ * are the source of truth; the status is only the fallback for a response
+ * that never reached a route handler (a proxy 502, say).
+ */
+const ERROR_KINDS_BY_CODE: Readonly<Record<string, ApiErrorKind>> = {
+  AUTHENTICATION_REQUIRED: 'auth',
+  RATE_LIMIT_EXCEEDED: 'rate_limited',
+  ROADMAP_GENERATION_FAILED: 'server',
+  CV_BULLET_GENERATION_FAILED: 'server',
+  CV_PROFILE_GENERATION_FAILED: 'server',
+  SERVICE_UNAVAILABLE: 'server',
+  INTERNAL_ERROR: 'server',
+  INVALID_ROADMAP_INPUT: 'invalid_response',
+  INVALID_CV_BULLET_INPUT: 'invalid_response',
+  INVALID_CV_PROFILE_INPUT: 'invalid_response',
+};
+
+const kindFromStatus = (status: number): ApiErrorKind => {
+  if (status === 429) return 'rate_limited';
+  if (status === 401 || status === 403) return 'auth';
+  if (status >= 500) return 'server';
+  return 'invalid_response';
+};
+
+const readErrorResponse = async (response: Response): Promise<ApiError> => {
+  let body: unknown;
+  try {
+    body = await response.json();
+  } catch {
+    return new ApiError(kindFromStatus(response.status), `Backend request failed (${response.status}).`);
+  }
+
+  const error = isRecord(body) && isRecord(body.error) ? body.error : undefined;
+  const code = typeof error?.code === 'string' ? error.code : undefined;
+  const message = typeof error?.message === 'string' ? error.message : undefined;
+
+  return new ApiError(
+    (code === undefined ? undefined : ERROR_KINDS_BY_CODE[code]) ?? kindFromStatus(response.status),
+    message ?? `Backend request failed (${response.status}).`,
+  );
+};
+
+/** POSTs to the backend with an auth header (when available) and a hard timeout. */
 const sendRequest = async (
   path: `/${string}`,
   init: Pick<RequestInit, 'headers' | 'body'>,
@@ -72,16 +120,7 @@ const sendRequest = async (
   }
 
   if (!response.ok) {
-    if (response.status === 429) {
-      throw new ApiError('rate_limited', 'AI request limit exceeded.');
-    }
-    if (response.status === 401 || response.status === 403) {
-      throw new ApiError('auth', 'Authentication is required.');
-    }
-    if (response.status >= 500) {
-      throw new ApiError('server', `Backend request failed (${response.status}).`);
-    }
-    throw new ApiError('invalid_response', `Backend request failed (${response.status}).`);
+    throw await readErrorResponse(response);
   }
 
   try {
@@ -93,10 +132,6 @@ const sendRequest = async (
 
 const requestJson = (path: `/${string}`, body: unknown, timeoutMs: number): Promise<unknown> =>
   sendRequest(path, { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }, timeoutMs);
-
-const requestMultipart = (path: `/${string}`, formData: FormData, timeoutMs: number): Promise<unknown> =>
-  // No Content-Type here: fetch sets the multipart boundary itself.
-  sendRequest(path, { body: formData }, timeoutMs);
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null;
@@ -170,16 +205,35 @@ export interface GenerateRoadmapInput {
   experience: string;
 }
 
+const LEVEL_SUMMARIES: Readonly<Record<Level, string>> = {
+  internship: 'Targeting an internship while still studying.',
+  'entry-level': 'Targeting a first full-time role after graduating.',
+};
+
+/**
+ * normalizeRoadmapInput rejects a targetRole.id it does not know, and a custom
+ * role has no backend definition — so the id is sent only for a preset.
+ */
+const backendRoleId = (roleId: string): string | undefined =>
+  findRolePreset(roleId) ? roleId : undefined;
+
 export const generateRoadmap = async (input: GenerateRoadmapInput): Promise<RoadmapTask[]> => {
   if (isMockMode()) {
     return mockGenerateRoadmap(input);
   }
 
-  // The backend contract has no roleId/level yet — only title/employer/experience.
+  // normalizeRoadmapInput takes { experience, targetRole: { id?, title,
+  // employer? }, targetIndustry? } — there is no slot for level, so it rides
+  // along in the experience text rather than being dropped.
   const title = resolveRoleTitle(input.roleId, input.customTitle);
+  const id = backendRoleId(input.roleId);
   const body = {
-    experience: input.experience,
-    targetRole: { title, ...(input.employer ? { employer: input.employer } : {}) },
+    experience: `${input.experience}\n\n${LEVEL_SUMMARIES[input.level]}`.slice(0, MAX_EXPERIENCE_LENGTH),
+    targetRole: {
+      ...(id ? { id } : {}),
+      title,
+      ...(input.employer ? { employer: input.employer } : {}),
+    },
   };
   const raw = await requestJson('/api/roadmap', body, ROADMAP_TIMEOUT_MS);
   return mapRoadmapResponse(raw);
@@ -198,33 +252,50 @@ export const generateCvBullet = async (input: GenerateCvBulletInput): Promise<Cv
     return mockGenerateCvBullet(input);
   }
 
-  const raw = await requestJson('/api/cv-bullet', input, CV_BULLET_TIMEOUT_MS);
+  // normalizeCvBulletInput takes { taskTitle, notes, targetRole?,
+  // targetIndustry? }. Our roleTitle is its targetRole; level has no slot and
+  // is not sent.
+  const body = {
+    taskTitle: input.taskTitle,
+    notes: input.notes,
+    ...(input.roleTitle ? { targetRole: input.roleTitle.slice(0, MAX_TARGET_ROLE_LENGTH) } : {}),
+  };
+  const raw = await requestJson('/api/cv-bullet', body, CV_BULLET_TIMEOUT_MS);
   return mapCvBulletResponse(raw);
 };
 
 export interface ExtractProfileFile {
-  uri: string;
-  name: string;
+  /** The picked PDF, already read as base64 (see filePicker.readPdfBase64). */
+  pdfBase64: string;
 }
 
 export interface ExtractProfileResult {
   experienceText: string;
+  /** Up to 3 follow-up questions the backend wants the student to answer. */
+  questions: string[];
 }
 
-/** Converts the backend's { experienceText } response. */
+/** Converts the backend's { experience, questions } response. */
 const mapExtractProfileResponse = (raw: unknown): ExtractProfileResult => {
-  if (!isRecord(raw) || typeof raw.experienceText !== 'string' || !raw.experienceText.trim()) {
-    throw new ApiError('invalid_response', 'CV extraction response was missing experienceText.');
+  if (!isRecord(raw) || typeof raw.experience !== 'string' || !raw.experience.trim()) {
+    throw new ApiError('invalid_response', 'CV extraction response was missing experience.');
   }
-  return { experienceText: raw.experienceText };
+  const { questions } = raw;
+  if (questions !== undefined && (!Array.isArray(questions) || questions.some((q) => typeof q !== 'string'))) {
+    throw new ApiError('invalid_response', 'CV extraction response had invalid questions.');
+  }
+  return {
+    experienceText: raw.experience,
+    questions: Array.isArray(questions) ? (questions as string[]) : [],
+  };
 };
 
 /**
- * Uploads a picked PDF to the backend for text extraction. The file is never
- * persisted anywhere in the app — it's only read here and handed off.
+ * Sends a picked PDF to the backend for extraction. The file is never
+ * persisted anywhere in the app — it's read as base64 here and handed off.
  *
- * `roleId` is only used in mock mode, to pick a role-tailored sample; the
- * real backend doesn't need it to extract text from a PDF.
+ * The real backend requires a known targetRoleId, so a custom role cannot use
+ * this path; mock mode only uses roleId to pick a role-tailored sample.
  */
 export const extractProfile = async (
   file: ExtractProfileFile,
@@ -234,15 +305,37 @@ export const extractProfile = async (
     return mockExtractProfile(roleId);
   }
 
-  const formData = new FormData();
-  // React Native's FormData accepts this shape for file fields; it isn't a real Blob.
-  formData.append(
-    'file',
-    { uri: file.uri, name: file.name, type: 'application/pdf' } as unknown as Blob,
-  );
+  if (!roleId || !backendRoleId(roleId)) {
+    throw new ApiError('invalid_response', 'Choose one of the listed roles before uploading a CV.');
+  }
 
-  const raw = await requestMultipart('/api/extract-profile', formData, EXTRACT_PROFILE_TIMEOUT_MS);
+  const raw = await requestJson(
+    '/api/cv-profile',
+    { pdfBase64: file.pdfBase64, targetRoleId: roleId },
+    EXTRACT_PROFILE_TIMEOUT_MS,
+  );
   return mapExtractProfileResponse(raw);
+};
+
+/** The backend's role catalog. The UI reads data/roles.ts instead — this is
+ *  only for checking the catalog against ours. */
+export interface RoleCatalogCategory {
+  id: string;
+  title: string;
+  roles: Array<{ id: string; title: string }>;
+}
+
+export const fetchRoleCatalog = async (): Promise<RoleCatalogCategory[]> => {
+  const baseUrl = requireBaseUrl();
+  const response = await fetch(`${baseUrl}/api/roles`);
+  if (!response.ok) {
+    throw await readErrorResponse(response);
+  }
+  const raw: unknown = await response.json();
+  if (!isRecord(raw) || !Array.isArray(raw.categories)) {
+    throw new ApiError('invalid_response', 'Role catalog response was missing categories.');
+  }
+  return raw.categories as RoleCatalogCategory[];
 };
 
 // --- Mock mode -------------------------------------------------------------
@@ -1154,5 +1247,5 @@ const mockExtractProfile = async (roleId: string | undefined): Promise<ExtractPr
   }
 
   const experienceText = (roleId && MOCK_CV_SUMMARIES_BY_ROLE_ID[roleId]) || GENERIC_MOCK_CV_SUMMARY;
-  return { experienceText };
+  return { experienceText, questions: [] };
 };

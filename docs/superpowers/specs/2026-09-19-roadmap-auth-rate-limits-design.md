@@ -155,7 +155,7 @@ The prompt may use a small set of authored cross-industry examples but no web
 scrapers or external resume/job datasets. Recommendations are tailored to the
 requested role and industry without claiming that the user's experience contains
 facts they did not provide. Roadmap and CV generation both use the configured
-`gemini-3.8-flash` model policy.
+`gemini-3.6-flash` model policy.
 
 ## Error Contract
 

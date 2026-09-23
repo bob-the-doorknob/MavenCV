@@ -5,6 +5,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
 import { RootNavigator } from './src/navigation/RootNavigator';
+import { getAuthToken } from './src/services/auth';
 import { processPendingCvEntries } from './src/services/cvQueue';
 import { configureRevenueCat } from './src/services/revenueCat';
 import { useAppStore } from './src/store/useAppStore';
@@ -17,6 +18,11 @@ export default function App() {
 
   useEffect(() => {
     configureRevenueCat();
+
+    // Anonymous sign-in first: every backend call needs the token, and the CV
+    // queue below is the first thing that makes one. Fire-and-forget — the
+    // token is cached, and a failure surfaces later as an auth ApiError.
+    void getAuthToken();
 
     // Trigger 1: app start, but only once the persisted store has actually
     // rehydrated — otherwise we'd process against an empty, not-yet-loaded
@@ -39,7 +45,7 @@ export default function App() {
 
     // Trigger 3 (after completeTask) lives in services/tasks.ts's
     // completeTaskAndQueue — screens call that instead of completeTask
-    // directly. No screen wires that up yet.
+    // directly.
     return () => {
       unsubscribeHydration?.();
       subscription.remove();
