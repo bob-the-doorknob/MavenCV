@@ -274,6 +274,10 @@ export function RoadmapScreen() {
           padded child of ListHeaderComponent is not reliably respected. */}
       <DraggableFlatList
         activationDistance={12}
+        // The library wraps the list in its own View for the gesture handler.
+        // Without flex here that wrapper has no height, so the list viewport
+        // is mis-sized and the header gets clipped.
+        containerStyle={styles.screen}
         // No bottom inset here: the tab bar already sits on it, and the screen
         // ends where the tab bar begins.
         contentContainerStyle={[styles.listContent, { paddingTop: insets.top }]}
