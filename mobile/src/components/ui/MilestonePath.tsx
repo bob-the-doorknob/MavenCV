@@ -37,6 +37,8 @@ interface MilestonePathProps {
 
 const RAIL_WIDTH = 36;
 const LINE_WIDTH = 2;
+/** Just enough for the dragged row to read as picked up. */
+const DRAG_LIFT_SCALE = 1.02;
 
 export function MilestonePath({ items, currentId, onPressItem }: MilestonePathProps) {
   const resolvedCurrentId =
@@ -61,7 +63,7 @@ export function MilestonePath({ items, currentId, onPressItem }: MilestonePathPr
   );
 }
 
-interface MilestoneRowProps {
+export interface MilestoneRowProps {
   item: MilestoneItem;
   index: number;
   travelledIndex: number;
@@ -69,6 +71,10 @@ interface MilestoneRowProps {
   isLast: boolean;
   isCurrent: boolean;
   onPress?: () => void;
+  /** Starts a drag. Long-press only, so a tap still opens the milestone. */
+  onLongPress?: () => void;
+  /** True while this row is the one being dragged. */
+  isDragging?: boolean;
 }
 
 /**
@@ -80,7 +86,7 @@ const travelledFraction = (index: number, travelledIndex: number): number => {
   return index === travelledIndex ? 0.5 : 1;
 };
 
-function MilestoneRow({
+export function MilestoneRow({
   item,
   index,
   travelledIndex,
@@ -88,6 +94,8 @@ function MilestoneRow({
   isLast,
   isCurrent,
   onPress,
+  onLongPress,
+  isDragging = false,
 }: MilestoneRowProps) {
   const theme = useTheme();
   const styles = useMemo(() => createStyles(theme), [theme]);
@@ -95,15 +103,25 @@ function MilestoneRow({
   const press = usePressScale();
   const target = travelledFraction(index, travelledIndex);
   const fill = useSharedValue(reducedMotion ? target : 0);
+  const lift = useSharedValue(1);
 
   useEffect(() => {
     fill.value = reducedMotion ? target : withTiming(target, { duration: motion.pathSegmentDuration });
   }, [fill, reducedMotion, target]);
 
+  useEffect(() => {
+    if (reducedMotion) {
+      lift.value = 1;
+      return;
+    }
+    lift.value = withTiming(isDragging ? DRAG_LIFT_SCALE : 1, { duration: motion.pressOutDuration });
+  }, [isDragging, lift, reducedMotion]);
+
   const travelledStyle = useAnimatedStyle(() => ({ height: `${fill.value * 100}%` }));
+  const liftStyle = useAnimatedStyle(() => ({ transform: [{ scale: lift.value }] }));
 
   const content = (
-    <View style={[styles.content, isCurrent && styles.currentCard]}>
+    <View style={[styles.content, isCurrent && styles.currentCard, isDragging && styles.draggingCard]}>
       <View style={styles.copy}>
         <Text style={[styles.title, item.status === 'done' && styles.titleDone]}>{item.title}</Text>
         {item.meta || item.schedule ? (
@@ -160,11 +178,14 @@ function MilestoneRow({
         <StatusNode backgroundColor={theme.colors.background} status={item.status} />
       </View>
       {onPress ? (
-        <Animated.View style={[styles.contentWrapper, press.style]}>
+        <Animated.View style={[styles.contentWrapper, press.style, liftStyle]}>
           <Pressable
+            accessibilityHint={onLongPress ? 'Long press to reorder' : undefined}
             accessibilityLabel={item.meta ? `${item.title}. ${item.meta}` : item.title}
             accessibilityRole="button"
             android_ripple={{ color: theme.colors.border }}
+            delayLongPress={220}
+            onLongPress={onLongPress}
             onPress={onPress}
             onPressIn={press.onPressIn}
             onPressOut={press.onPressOut}
@@ -219,6 +240,13 @@ const createStyles = (theme: Theme) =>
       borderRadius: radii.lg,
       borderWidth: 1,
       padding: spacing.lg,
+    },
+    draggingCard: {
+      backgroundColor: theme.colors.surface,
+      borderColor: theme.colors.textPrimary,
+      borderRadius: radii.lg,
+      borderWidth: 1,
+      paddingHorizontal: spacing.lg,
     },
     title: {
       color: theme.colors.textPrimary,

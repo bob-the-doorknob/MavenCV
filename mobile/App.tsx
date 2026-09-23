@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { AppState, StyleSheet, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
 import { RootNavigator } from './src/navigation/RootNavigator';
 import { processPendingCvEntries } from './src/services/cvQueue';
@@ -46,17 +47,21 @@ export default function App() {
   }, []);
 
   return (
-    <SafeAreaProvider>
-      {/* Each screen applies its own safe-area insets — this wrapper only sets
-          the background so there's no gap around them. */}
-      <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
-        {/* Screens with a dark header block override this with their own. */}
-        <StatusBar style={theme.mode === 'dark' ? 'light' : 'dark'} />
-        {/* Nothing renders until the fonts are in — typography is the loudest
-            part of this design and swapping it in late looks broken. */}
-        {fontsReady ? <RootNavigator /> : null}
-      </View>
-    </SafeAreaProvider>
+    // react-native-gesture-handler requires this at the root; the milestone
+    // drag on the roadmap does not work without it.
+    <GestureHandlerRootView style={styles.container}>
+      <SafeAreaProvider>
+        {/* Each screen applies its own safe-area insets — this wrapper only sets
+            the background so there's no gap around them. */}
+        <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
+          {/* Screens with a dark header block override this with their own. */}
+          <StatusBar style={theme.mode === 'dark' ? 'light' : 'dark'} />
+          {/* Nothing renders until the fonts are in — typography is the loudest
+              part of this design and swapping it in late looks broken. */}
+          {fontsReady ? <RootNavigator /> : null}
+        </View>
+      </SafeAreaProvider>
+    </GestureHandlerRootView>
   );
 }
 

@@ -8,6 +8,7 @@ import {
 } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Path } from 'react-native-svg';
 
 import { CvVaultScreen } from '../screens/cv/CvVaultScreen';
@@ -41,6 +42,9 @@ declare global {
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 const Tab = createBottomTabNavigator<MainTabParamList>();
+
+/** Icon, label and padding, before the device's bottom inset is added. */
+const TAB_BAR_HEIGHT = 60;
 
 interface TabIconProps {
   focused: boolean;
@@ -89,6 +93,7 @@ function CvIcon({ focused, color }: TabIconProps) {
 
 function MainTabs() {
   const theme = useTheme();
+  const insets = useSafeAreaInsets();
   const styles = useMemo(() => createStyles(theme), [theme]);
 
   return (
@@ -97,7 +102,12 @@ function MainTabs() {
         headerShown: false,
         tabBarActiveTintColor: theme.colors.textPrimary,
         tabBarInactiveTintColor: theme.colors.textMuted,
-        tabBarStyle: styles.tabBar,
+        // A fixed height would swallow the home indicator / gesture bar and
+        // clip the labels, so the bottom inset is added on top of it.
+        tabBarStyle: [
+          styles.tabBar,
+          { height: TAB_BAR_HEIGHT + insets.bottom, paddingBottom: insets.bottom + 6 },
+        ],
         tabBarLabelStyle: styles.tabLabel,
         tabBarItemStyle: styles.tabItem,
       }}
@@ -164,16 +174,18 @@ const createStyles = (theme: Theme) =>
       borderTopColor: theme.colors.border,
       borderTopWidth: StyleSheet.hairlineWidth,
       elevation: 0,
-      height: 64,
-      paddingTop: 6,
+      paddingTop: 8,
     },
     tabItem: {
-      paddingVertical: 4,
+      paddingVertical: 0,
     },
     tabLabel: {
       fontFamily: typography.caption.fontFamily,
       fontSize: typography.caption.fontSize,
+      // Geist's descenders get clipped without room for the full line box.
+      lineHeight: typography.caption.lineHeight,
       fontWeight: '600',
+      marginTop: 2,
     },
     iconWrapper: {
       alignItems: 'center',

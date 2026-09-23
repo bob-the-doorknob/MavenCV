@@ -1,18 +1,20 @@
 import { useMemo, useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import Animated from 'react-native-reanimated';
 import Svg, { Path } from 'react-native-svg';
+import * as Haptics from 'expo-haptics';
+import DraggableFlatList, { type RenderItemParams } from 'react-native-draggable-flatlist';
 
 import {
   Card,
   CategoryChip,
   Chip,
   EmptyState,
-  MilestonePath,
+  MilestoneRow,
   ScoreArc,
   SectionLabel,
   Sheet,
@@ -122,15 +124,38 @@ export function RoadmapScreen() {
     navigation.navigate('TaskDetail', { taskId });
   };
 
-  return (
-    <View style={styles.screen}>
-      {/* The header block behind the status bar is always dark. */}
-      <StatusBar style="light" />
-      <ScrollView
-        contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + spacing.xl }]}
-        style={styles.screen}
-      >
-        <View style={[styles.header, { paddingTop: insets.top + spacing.lg }]}>
+  const renderMilestone = ({ item, getIndex, drag, isActive }: RenderItemParams<MilestoneItem>) => {
+    // Indices shift while a drag is in flight, so the rail is derived from the
+    // list's live index rather than a captured one.
+    const index = getIndex() ?? 0;
+    const travelledIndex = ordered.currentId
+      ? milestones.findIndex((entry) => entry.id === ordered.currentId)
+      : -1;
+
+    return (
+      <View style={styles.milestoneRow}>
+        <MilestoneRow
+          index={index}
+          isCurrent={item.id === ordered.currentId}
+          isDragging={isActive}
+          isFirst={index === 0}
+          isLast={index === milestones.length - 1}
+          item={item}
+          onLongPress={drag}
+          onPress={() => openTask(item.id)}
+          travelledIndex={travelledIndex}
+        />
+      </View>
+    );
+  };
+
+  /**
+   * The list owns the scroll, so the drag gesture never competes with a
+   * parent ScrollView. Everything above the milestones is its header.
+   */
+  const listHeader = (
+    <View style={styles.headerStack}>
+        <View style={styles.header}>
           <SectionLabel color={headerColors.textSecondary}>Your roadmap</SectionLabel>
           <Text style={styles.roleTitle}>
             {target ? resolveRoleTitle(target.roleId, target.customTitle) : 'No target role'}
@@ -198,17 +223,22 @@ export function RoadmapScreen() {
               </Card>
             </View>
 
-            <View style={styles.section}>
+            <View style={styles.milestonesLabel}>
               <SectionLabel>Milestones</SectionLabel>
-              <MilestonePath
-                items={milestones}
-                onPressItem={openTask}
-                {...(ordered.currentId ? { currentId: ordered.currentId } : {})}
-              />
-              <AddMilestoneRow onPress={() => setAddMilestoneVisible(true)} />
+              <Text style={styles.focusLimit}>Hold to reorder</Text>
             </View>
           </>
         )}
+    </View>
+  );
+
+  const listFooter = (
+    <View style={styles.footerStack}>
+        {ordered.totalCount > 0 ? (
+          <View style={styles.section}>
+            <AddMilestoneRow onPress={() => setAddMilestoneVisible(true)} />
+          </View>
+        ) : null}
 
         {__DEV__ ? (
           <View style={styles.devLinks}>
@@ -232,7 +262,37 @@ export function RoadmapScreen() {
             </Pressable>
           </View>
         ) : null}
-      </ScrollView>
+    </View>
+  );
+
+  return (
+    <View style={styles.screen}>
+      {/* The header block behind the status bar is always dark. */}
+      <StatusBar style="light" />
+
+      {/* The list owns the top inset, not the header element inside it — a
+          padded child of ListHeaderComponent is not reliably respected. */}
+      <DraggableFlatList
+        activationDistance={12}
+        // No bottom inset here: the tab bar already sits on it, and the screen
+        // ends where the tab bar begins.
+        contentContainerStyle={[styles.listContent, { paddingTop: insets.top }]}
+        data={milestones}
+        keyExtractor={(item) => item.id}
+        ListFooterComponent={listFooter}
+        ListHeaderComponent={listHeader}
+        onDragBegin={() => void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)}
+        onDragEnd={({ data }) => {
+          void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+          useAppStore.getState().reorderTasks(data.map((item) => item.id));
+        }}
+        renderItem={renderMilestone}
+        style={styles.screen}
+      />
+
+      {/* Keeps the status bar sitting on the header's own dark, both at rest
+          and once the list scrolls under it. */}
+      <View pointerEvents="none" style={[styles.statusBarScrim, { height: insets.top }]} />
 
       <Sheet onClose={() => setScoringVisible(false)} title="How is this scored?" visible={scoringVisible}>
         <Text style={styles.sheetBody}>
@@ -413,8 +473,34 @@ const createStyles = (theme: Theme) =>
       backgroundColor: theme.colors.background,
       flex: 1,
     },
-    content: {
+    listContent: {
+      backgroundColor: theme.colors.background,
+      paddingBottom: spacing.xl,
+    },
+    statusBarScrim: {
+      backgroundColor: headerColors.background,
+      left: 0,
+      position: 'absolute',
+      right: 0,
+      top: 0,
+    },
+    headerStack: {
+      backgroundColor: theme.colors.background,
       gap: spacing.xl,
+      paddingBottom: spacing.md,
+    },
+    footerStack: {
+      gap: spacing.xl,
+      paddingTop: spacing.md,
+    },
+    milestonesLabel: {
+      alignItems: 'center',
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      paddingHorizontal: spacing.lg,
+    },
+    milestoneRow: {
+      paddingHorizontal: spacing.lg,
     },
     header: {
       alignItems: 'center',
@@ -424,6 +510,7 @@ const createStyles = (theme: Theme) =>
       gap: spacing.md,
       paddingBottom: spacing.xl,
       paddingHorizontal: spacing.lg,
+      paddingTop: spacing.lg,
     },
     roleTitle: {
       color: headerColors.text,

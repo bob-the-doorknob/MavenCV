@@ -3,7 +3,7 @@ export { Card } from './Card';
 export { CategoryChip } from './CategoryChip';
 export { Chip, type ChipTone } from './Chip';
 export { EmptyState } from './EmptyState';
-export { MilestonePath, type MilestoneItem } from './MilestonePath';
+export { MilestonePath, MilestoneRow, type MilestoneItem, type MilestoneRowProps } from './MilestonePath';
 export { ProgressBar } from './ProgressBar';
 export { ScoreArc } from './ScoreArc';
 export { SectionLabel } from './SectionLabel';
