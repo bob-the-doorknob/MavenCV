@@ -1,16 +1,34 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, BackHandler, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, View } from 'react-native';
+import {
+  ActivityIndicator,
+  BackHandler,
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import Animated from 'react-native-reanimated';
+import Svg, { Path } from 'react-native-svg';
 
-import { Button, Chip, ProgressBar, TextArea, TextField } from '../../components/ui';
+import { Button, Chip, ProgressBar, SectionLabel, TextArea, TextField } from '../../components/ui';
+import { usePressScale } from '../../components/ui/usePressScale';
 import type { Level } from '../../data/roles';
 import { levelLabels } from '../../data/roles';
 import { extractProfile } from '../../services/api';
 import type { ErrorMessage } from '../../services/errorMessages';
 import { getFilePickerErrorMessage, pickPdf } from '../../services/filePicker';
-import { spacing, typography, type Theme } from '../../theme/tokens';
+import { radii, spacing, typography, type Theme } from '../../theme/tokens';
 import { useTheme } from '../../theme/useTheme';
 import { EXPERIENCE_MAX_LENGTH, getExperienceFeedback } from '../../utils/experienceLimits';
+
+const LEVEL_DESCRIPTIONS: Readonly<Record<Level, string>> = {
+  internship: 'A summer or placement role while you are still studying.',
+  'entry-level': 'Your first full-time role after graduating.',
+};
 
 const EXPERIENCE_EXAMPLES: Readonly<Record<string, string>> = {
   'software-engineer':
@@ -139,20 +157,30 @@ export function AboutYouScreen({
     <KeyboardAvoidingView behavior={Platform.OS === 'android' ? 'height' : 'padding'} style={styles.flex}>
       <View style={[styles.screen, { paddingTop: insets.top }]}>
         <ScrollView contentContainerStyle={[styles.content, { paddingBottom: insets.bottom }]}>
-          <Text style={styles.title}>Tell us about you</Text>
+          <View style={styles.headerBlock}>
+            <SectionLabel>Step 2 of 3</SectionLabel>
+            <Text style={styles.title}>Tell us about you</Text>
+            <Text style={styles.subtitle}>
+              This is what your roadmap is built from, so be concrete.
+            </Text>
+          </View>
 
           <View style={styles.field}>
-            <Text style={styles.label}>Level</Text>
-            <View style={styles.row}>
-              <Chip
-                label={levelLabels.internship}
+            <SectionLabel>Level</SectionLabel>
+            <View style={styles.levelList}>
+              <LevelRow
+                description={LEVEL_DESCRIPTIONS.internship}
+                isFirst
                 onPress={() => onSelectLevel('internship')}
                 selected={level === 'internship'}
+                title={levelLabels.internship}
               />
-              <Chip
-                label={levelLabels['entry-level']}
+              <LevelRow
+                description={LEVEL_DESCRIPTIONS['entry-level']}
+                isFirst={false}
                 onPress={() => onSelectLevel('entry-level')}
                 selected={level === 'entry-level'}
+                title={levelLabels['entry-level']}
               />
             </View>
           </View>
@@ -166,7 +194,7 @@ export function AboutYouScreen({
           />
 
           <View style={styles.field}>
-            <Text style={styles.label}>Your experience</Text>
+            <SectionLabel>Your experience</SectionLabel>
             <View style={styles.row}>
               <Chip label="Write it" onPress={() => handleSelectMode('write')} selected={mode === 'write'} />
               <Chip
@@ -195,7 +223,7 @@ export function AboutYouScreen({
 
                 <ProgressBar height={6} value={feedback.progressToRecommended * 100} />
                 <Text style={[styles.hint, feedback.tone === 'sufficient' && styles.hintPositive]}>
-                  {feedback.tone === 'sufficient' ? `✓ ${feedback.hintText}` : feedback.hintText}
+                  {feedback.hintText}
                 </Text>
               </View>
             ) : (
@@ -227,10 +255,55 @@ export function AboutYouScreen({
         </ScrollView>
 
         <View style={[styles.footer, { paddingBottom: insets.bottom }]}>
-          <Button label="Generate my roadmap" onPress={onContinue} disabled={!canContinue} />
+          <Button label="Continue" onPress={onContinue} disabled={!canContinue} />
         </View>
       </View>
     </KeyboardAvoidingView>
+  );
+}
+
+interface LevelRowProps {
+  title: string;
+  description: string;
+  selected: boolean;
+  isFirst: boolean;
+  onPress: () => void;
+}
+
+function LevelRow({ title, description, selected, isFirst, onPress }: LevelRowProps) {
+  const theme = useTheme();
+  const styles = useMemo(() => createStyles(theme), [theme]);
+  const press = usePressScale();
+
+  return (
+    <Animated.View style={press.style}>
+      <Pressable
+        accessibilityLabel={`${title}. ${description}`}
+        accessibilityRole="button"
+        accessibilityState={{ selected }}
+        android_ripple={{ color: theme.colors.border }}
+        onPress={onPress}
+        onPressIn={press.onPressIn}
+        onPressOut={press.onPressOut}
+        style={[styles.levelRow, !isFirst && styles.levelRowDivided]}
+      >
+        <View style={styles.levelCopy}>
+          <Text style={styles.levelTitle}>{title}</Text>
+          <Text style={styles.levelDescription}>{description}</Text>
+        </View>
+        {selected ? (
+          <Svg fill="none" height={18} viewBox="0 0 24 24" width={18}>
+            <Path
+              d="M4 12.5 L9.5 18 L20 6.5"
+              stroke={theme.colors.textPrimary}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2.5}
+            />
+          </Svg>
+        ) : null}
+      </Pressable>
+    </Animated.View>
   );
 }
 
@@ -238,6 +311,51 @@ const createStyles = (theme: Theme) =>
   StyleSheet.create({
     flex: {
       flex: 1,
+    },
+    headerBlock: {
+      gap: spacing.sm,
+    },
+    subtitle: {
+      color: theme.colors.textSecondary,
+      fontFamily: typography.body.fontFamily,
+      fontSize: typography.body.fontSize,
+      lineHeight: typography.body.lineHeight,
+    },
+    levelList: {
+      backgroundColor: theme.colors.surface,
+      borderColor: theme.colors.border,
+      borderRadius: radii.lg,
+      borderWidth: 1,
+      overflow: 'hidden',
+    },
+    levelRow: {
+      alignItems: 'center',
+      flexDirection: 'row',
+      gap: spacing.md,
+      minHeight: 72,
+      paddingHorizontal: spacing.lg,
+      paddingVertical: spacing.md,
+    },
+    levelRowDivided: {
+      borderTopColor: theme.colors.divider,
+      borderTopWidth: 1,
+    },
+    levelCopy: {
+      flex: 1,
+      gap: 2,
+    },
+    levelTitle: {
+      color: theme.colors.textPrimary,
+      fontFamily: typography.rowTitle.fontFamily,
+      fontSize: typography.rowTitle.fontSize,
+      fontWeight: typography.rowTitle.fontWeight,
+      lineHeight: typography.rowTitle.lineHeight,
+    },
+    levelDescription: {
+      color: theme.colors.textSecondary,
+      fontFamily: typography.caption.fontFamily,
+      fontSize: typography.caption.fontSize,
+      lineHeight: typography.caption.lineHeight,
     },
     screen: {
       backgroundColor: theme.colors.background,
@@ -256,13 +374,7 @@ const createStyles = (theme: Theme) =>
       lineHeight: typography.title.lineHeight,
     },
     field: {
-      gap: spacing.xs,
-    },
-    label: {
-      color: theme.colors.textSecondary,
-      fontFamily: typography.caption.fontFamily,
-      fontSize: typography.caption.fontSize,
-      fontWeight: '700',
+      gap: spacing.sm,
     },
     row: {
       flexDirection: 'row',
@@ -274,8 +386,8 @@ const createStyles = (theme: Theme) =>
       fontSize: typography.caption.fontSize,
     },
     hintPositive: {
-      color: theme.colors.accent,
-      fontWeight: '700',
+      color: theme.colors.accentText,
+      fontWeight: '600',
     },
     filledNote: {
       color: theme.colors.textSecondary,
@@ -308,8 +420,9 @@ const createStyles = (theme: Theme) =>
       fontSize: typography.caption.fontSize,
     },
     footer: {
+      backgroundColor: theme.colors.surface,
       borderTopColor: theme.colors.border,
-      borderTopWidth: 1,
+      borderTopWidth: StyleSheet.hairlineWidth,
       padding: spacing.lg,
     },
   });

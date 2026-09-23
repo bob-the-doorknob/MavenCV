@@ -6,9 +6,10 @@ import { useTheme } from '../../theme/useTheme';
 import { EXPERIENCE_MIN_LENGTH } from '../../utils/experienceLimits';
 import { AboutYouScreen } from './AboutYouScreen';
 import { GeneratingScreen } from './GeneratingScreen';
+import { ReadyByScreen } from './ReadyByScreen';
 import { RoleScreen } from './RoleScreen';
 
-type Step = 'role' | 'aboutYou' | 'generating';
+type Step = 'role' | 'aboutYou' | 'readyBy' | 'generating';
 
 const MAX_CUSTOM_TITLE_LENGTH = 60;
 
@@ -28,6 +29,7 @@ export function OnboardingFlow() {
   const [level, setLevel] = useState<Level | null>(null);
   const [employer, setEmployer] = useState('');
   const [experience, setExperience] = useState('');
+  const [targetDate, setTargetDate] = useState<string | null>(null);
 
   const handleCustomTitleChange = useCallback((text: string) => {
     setCustomTitle(text.slice(0, MAX_CUSTOM_TITLE_LENGTH));
@@ -40,6 +42,21 @@ export function OnboardingFlow() {
   const trimmedEmployer = employer.trim() || undefined;
   const trimmedExperience = experience.trim();
 
+  if (step === 'readyBy') {
+    return (
+      <ReadyByScreen
+        onBack={() => setStep('aboutYou')}
+        onContinue={() => setStep('generating')}
+        onPickDate={setTargetDate}
+        onSkip={() => {
+          setTargetDate(null);
+          setStep('generating');
+        }}
+        targetDate={targetDate}
+      />
+    );
+  }
+
   if (step === 'generating') {
     return (
       <GeneratingScreen
@@ -47,7 +64,8 @@ export function OnboardingFlow() {
         employer={trimmedEmployer}
         experience={trimmedExperience}
         level={level as Level}
-        onBack={() => setStep('aboutYou')}
+        targetDate={targetDate ?? undefined}
+        onBack={() => setStep('readyBy')}
         // Saving the target is what ends onboarding: the root navigator sees
         // the new target and swaps this flow out for the roadmap.
         onDone={() => {}}
@@ -74,7 +92,7 @@ export function OnboardingFlow() {
           experience={experience}
           level={level}
           onBack={() => setStep('role')}
-          onContinue={() => setStep('generating')}
+          onContinue={() => setStep('readyBy')}
           onEmployerChange={setEmployer}
           onExperienceChange={setExperience}
           onSelectLevel={setLevel}

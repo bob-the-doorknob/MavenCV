@@ -1,14 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, BackHandler, StyleSheet, Text, View } from 'react-native';
+import { BackHandler, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { StatusBar } from 'expo-status-bar';
 
-import { Button, Card } from '../../components/ui';
+import { Button, Card, SectionLabel } from '../../components/ui';
 import type { Level } from '../../data/roles';
 import { generateRoadmap } from '../../services/api';
 import { getErrorMessage, type ErrorMessage } from '../../services/errorMessages';
 import { useAppStore } from '../../store/useAppStore';
-import { spacing, typography, type Theme } from '../../theme/tokens';
+import { headerColors, radii, spacing, typography, type Theme } from '../../theme/tokens';
 import { useTheme } from '../../theme/useTheme';
+import { DrawingPath } from './DrawingPath';
 
 const STATUS_LINES = [
   'Reading your experience…',
@@ -23,6 +25,8 @@ interface GeneratingScreenProps {
   level: Level;
   employer: string | undefined;
   experience: string;
+  /** Chosen during onboarding; applied once the target exists. */
+  targetDate?: string | undefined;
   onDone: () => void;
   onBack: () => void;
 }
@@ -33,6 +37,7 @@ export function GeneratingScreen({
   level,
   employer,
   experience,
+  targetDate,
   onDone,
   onBack,
 }: GeneratingScreenProps) {
@@ -67,6 +72,12 @@ export function GeneratingScreen({
         ...(customTitle ? { customTitle } : {}),
         ...(employer ? { employer } : {}),
       });
+      // addTarget makes this the active target, so the date and schedule land
+      // on the roadmap that was just generated.
+      if (targetDate) {
+        useAppStore.getState().setTargetDate(targetDate);
+        useAppStore.getState().applySchedule('comfortable');
+      }
       onDone();
     } catch (error) {
       setErrorInfo(getErrorMessage(error));
@@ -74,7 +85,7 @@ export function GeneratingScreen({
     } finally {
       isInFlightRef.current = false;
     }
-  }, [roleId, customTitle, level, employer, experience, onDone]);
+  }, [roleId, customTitle, level, employer, experience, targetDate, onDone]);
 
   // Exactly once per mount (per "attempt" — Retry calls runGeneration again explicitly).
   useEffect(() => {
@@ -104,10 +115,12 @@ export function GeneratingScreen({
   }, [status, onBack]);
 
   return (
-    <View style={[styles.screen, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
+    <View style={[styles.screen, { paddingBottom: insets.bottom }]}>
       {status === 'loading' ? (
-        <View style={styles.center}>
-          <ActivityIndicator color={theme.colors.accent} size="large" />
+        <View style={[styles.block, { paddingTop: insets.top + spacing.xxl }]}>
+          <StatusBar style="light" />
+          <SectionLabel color={headerColors.textSecondary}>Building your roadmap</SectionLabel>
+          <DrawingPath />
           <Text style={styles.statusLine}>{STATUS_LINES[lineIndex]}</Text>
         </View>
       ) : (
@@ -141,10 +154,23 @@ const createStyles = (theme: Theme) =>
       justifyContent: 'center',
       padding: spacing.xl,
     },
+    // The same dark block as the roadmap header, so the wait already looks
+    // like the app you are about to land in.
+    block: {
+      alignItems: 'center',
+      backgroundColor: headerColors.background,
+      borderBottomLeftRadius: radii.header,
+      borderBottomRightRadius: radii.header,
+      flex: 1,
+      gap: spacing.xl,
+      paddingBottom: spacing.xxxl,
+      paddingHorizontal: spacing.xl,
+    },
     statusLine: {
-      color: theme.colors.textSecondary,
+      color: headerColors.textSecondary,
       fontFamily: typography.body.fontFamily,
       fontSize: typography.body.fontSize,
+      lineHeight: typography.body.lineHeight,
       textAlign: 'center',
     },
     errorCard: {
