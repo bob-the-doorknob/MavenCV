@@ -6,11 +6,6 @@
     "orientation": "portrait",
     "userInterfaceStyle": "light",
     "owner": "xphalo",
-    "extra": {
-      "eas": {
-        "projectId": "05b97eec-bd23-49dc-b44c-c17651cca06f"
-      }
-    },
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.maven.app"
@@ -18,6 +13,11 @@
     "android": {
       "package": "com.maven.app",
       "predictiveBackGestureEnabled": false
+    },
+    "extra": {
+      "eas": {
+        "projectId": "0bce248e-277a-4699-ab5d-02c393fe165d"
+      }
     }
   }
 }
