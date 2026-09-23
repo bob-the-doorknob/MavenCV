@@ -1,12 +1,9 @@
 import { useAppStore } from '../store/useAppStore';
-import { processPendingCvEntries } from './cvQueue';
 
 /**
- * Screens completing a task must call this, not the store's completeTask
- * directly — it also fires the CV-bullet queue (fire-and-forget, never
- * awaited, never blocks the UI).
+ * Completes and queues locally. The CV screen owns network processing;
+ * this checklist action never starts an AI request.
  */
 export const completeTaskAndQueue = (taskId: string, notes: string): void => {
   useAppStore.getState().completeTask(taskId, notes);
-  void processPendingCvEntries();
 };

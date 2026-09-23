@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   BackHandler,
@@ -20,7 +20,7 @@ import type { Level } from '../../data/roles';
 import { levelLabels } from '../../data/roles';
 import { extractProfile } from '../../services/api';
 import type { ErrorMessage } from '../../services/errorMessages';
-import { getFilePickerErrorMessage, pickPdf, readPdfBase64 } from '../../services/filePicker';
+import { deleteCachedPdf, getFilePickerErrorMessage, pickPdf, readPdfBase64 } from '../../services/filePicker';
 import { radii, spacing, typography, type Theme } from '../../theme/tokens';
 import { useTheme } from '../../theme/useTheme';
 import { EXPERIENCE_MAX_LENGTH, getExperienceFeedback } from '../../utils/experienceLimits';
@@ -70,6 +70,7 @@ const getExperienceExample = (roleId: string | null): string =>
 type InputMode = 'write' | 'upload';
 
 interface AboutYouScreenProps {
+  customTitle?: string | undefined;
   roleId: string | null;
   level: Level | null;
   onSelectLevel: (level: Level) => void;
@@ -83,6 +84,7 @@ interface AboutYouScreenProps {
 }
 
 export function AboutYouScreen({
+  customTitle,
   roleId,
   level,
   onSelectLevel,
@@ -103,6 +105,10 @@ export function AboutYouScreen({
   const [isExtracting, setIsExtracting] = useState(false);
   const [extractError, setExtractError] = useState<ErrorMessage | null>(null);
   const [showFilledNote, setShowFilledNote] = useState(false);
+  const [questions, setQuestions] = useState<string[]>([]);
+  const revision = useRef(0);
+  const picking = useRef(false);
+  useEffect(() => () => { revision.current += 1; }, []);
 
   const feedback = getExperienceFeedback(experience);
 
@@ -115,6 +121,7 @@ export function AboutYouScreen({
   }, [onBack]);
 
   const handleSelectMode = (nextMode: InputMode) => {
+    revision.current += 1;
     setMode(nextMode);
     setExtractError(null);
     setPickedFileName(null);
@@ -122,36 +129,49 @@ export function AboutYouScreen({
   };
 
   const handleExperienceTextChange = (text: string) => {
+    revision.current += 1;
     onExperienceChange(text);
     setShowFilledNote(false);
   };
 
   const handleChoosePdf = async () => {
+    if (picking.current) return;
+    picking.current = true;
+    setIsExtracting(true);
+    const requestRevision = ++revision.current;
     setExtractError(null);
     let file;
     try {
       file = await pickPdf();
     } catch (error) {
       setExtractError(getFilePickerErrorMessage(error));
+      picking.current = false;
+      setIsExtracting(false);
       return;
     }
     if (!file) {
+      picking.current = false;
+      setIsExtracting(false);
       return; // cancelled — silent, existing text untouched
     }
 
-    setPickedFileName(file.name);
-    setIsExtracting(true);
     try {
+      if (revision.current !== requestRevision) return;
+      setPickedFileName(file.name);
       // The backend takes the PDF as base64 JSON, so the bytes are read here
       // and api.ts stays free of native file modules.
       const pdfBase64 = await readPdfBase64(file.uri);
-      const result = await extractProfile({ pdfBase64 }, roleId ?? undefined);
+      const result = await extractProfile({ pdfBase64 }, roleId ?? undefined, customTitle);
+      if (revision.current !== requestRevision) return;
+      setQuestions(result.questions);
       onExperienceChange(result.experienceText);
       setMode('write');
       setShowFilledNote(true);
     } catch (error) {
-      setExtractError(getFilePickerErrorMessage(error));
+      if (revision.current === requestRevision) setExtractError(getFilePickerErrorMessage(error));
     } finally {
+      deleteCachedPdf(file.uri);
+      picking.current = false;
       setIsExtracting(false);
     }
   };
@@ -198,6 +218,7 @@ export function AboutYouScreen({
 
           <View style={styles.field}>
             <SectionLabel>Your experience</SectionLabel>
+            {questions.length > 0 ? <Text style={styles.subtitle}>Review the extracted claims. Add answers to these questions in your experience text:{'\n'}{questions.join('\n')}</Text> : null}
             <View style={styles.row}>
               <Chip label="Write it" onPress={() => handleSelectMode('write')} selected={mode === 'write'} />
               <Chip

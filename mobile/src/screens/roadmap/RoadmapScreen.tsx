@@ -11,6 +11,7 @@ import DraggableFlatList, { type RenderItemParams } from 'react-native-draggable
 
 import {
   Card,
+  Button,
   CategoryChip,
   Chip,
   EmptyState,
@@ -24,7 +25,9 @@ import {
 import { usePressScale } from '../../components/ui/usePressScale';
 import { levelLabels, resolveRoleTitle } from '../../data/roles';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
-import { useActiveTarget, useAppStore, useFocusTasks, useReadiness } from '../../store/useAppStore';
+import { useActiveTarget, useAppStore, useFocusTasks, useReadiness, isCheckInDue } from '../../store/useAppStore';
+import { checkProEntitlement } from '../../services/proStatus';
+import { presentProPaywall } from '../../services/revenueCat';
 import { headerColors, minTouchTarget, radii, spacing, typography, type Theme } from '../../theme/tokens';
 import { useTheme } from '../../theme/useTheme';
 import { countSteps, orderRoadmap, taskMetaLine } from '../../utils/groupTasks';
@@ -62,6 +65,19 @@ export function RoadmapScreen() {
   const navigation = useNavigation<Navigation>();
   const styles = useMemo(() => createStyles(theme), [theme]);
   const target = useActiveTarget();
+  const targets = useAppStore((state) => state.targets);
+  const [targetsVisible, setTargetsVisible] = useState(false);
+  const [addingTarget, setAddingTarget] = useState(false);
+  const addTarget = async (): Promise<void> => {
+    if (addingTarget) return;
+    setAddingTarget(true);
+    try {
+      if (!(await checkProEntitlement()) && !(await presentProPaywall())) return;
+      setTargetsVisible(false);
+      navigation.navigate('AddTarget');
+    } catch (error) { Alert.alert('Unable to add target', error instanceof Error ? error.message : 'Please try again.'); }
+    finally { setAddingTarget(false); }
+  };
   const readiness = useReadiness();
   const focusTasks = useFocusTasks();
   const [scoringVisible, setScoringVisible] = useState(false);
@@ -187,16 +203,20 @@ export function RoadmapScreen() {
         </View>
 
         <View style={styles.section}>
+          <Button label="Manage target roles" onPress={() => setTargetsVisible(true)} variant="ghost" />
           <ReadyByRow
             onPress={() => setReadyByVisible(true)}
             {...(target?.targetDate ? { targetDate: target.targetDate } : {})}
           />
+          {target?.targetDate && roadmap.some((task) => task.status !== 'done' && task.targetDate && Date.parse(task.targetDate) > Date.parse(target.targetDate!)) ? (
+            <Button label="Schedule runs past your target date — review" onPress={recheckFit} variant="ghost" />
+          ) : null}
         </View>
 
         {ordered.totalCount === 0 ? (
           <View style={styles.section}>
             <EmptyState
-              message="Your roadmap has no milestones yet. Reset the app to generate a new one."
+              message="Add a milestone below to continue your roadmap."
               title="Nothing to work on"
             />
           </View>
@@ -221,6 +241,7 @@ export function RoadmapScreen() {
                   <FocusPromptRow onPress={() => setFocusPickerVisible(true)} />
                 )}
               </Card>
+              <Button label={isCheckInDue(target, now) ? 'Weekly check-in: review your focus' : 'Change current focus'} onPress={() => setFocusPickerVisible(true)} variant="ghost" />
             </View>
 
             <View style={styles.milestonesLabel}>
@@ -234,7 +255,7 @@ export function RoadmapScreen() {
 
   const listFooter = (
     <View style={styles.footerStack}>
-        {ordered.totalCount > 0 ? (
+        {target ? (
           <View style={styles.section}>
             <AddMilestoneRow onPress={() => setAddMilestoneVisible(true)} />
           </View>
@@ -269,6 +290,13 @@ export function RoadmapScreen() {
     <View style={styles.screen}>
       {/* The header block behind the status bar is always dark. */}
       <StatusBar style="light" />
+      <Sheet onClose={() => setTargetsVisible(false)} title="Target roles" visible={targetsVisible}>
+        {targets.map((item) => <Button key={item.id} label={`${item.id === target?.id ? 'Current: ' : ''}${resolveRoleTitle(item.roleId, item.customTitle)}`} variant="ghost" onPress={() => { useAppStore.getState().setActiveTarget(item.id); setTargetsVisible(false); }} />)}
+        <Button disabled={addingTarget} label="Add another target (Pro)" onPress={() => void addTarget()} />
+        {target ? <Button label="Delete current target and its CV bullets" variant="ghost" onPress={() => Alert.alert('Delete target?', 'This removes this target and its CV bullets from this device. This cannot be undone.', [
+          { text: 'Cancel', style: 'cancel' }, { text: 'Delete', style: 'destructive', onPress: () => { useAppStore.getState().removeTarget(target.id); setTargetsVisible(false); } },
+        ])} /> : null}
+      </Sheet>
 
       {/* The list owns the top inset, not the header element inside it — a
           padded child of ListHeaderComponent is not reliably respected. */}
@@ -301,7 +329,7 @@ export function RoadmapScreen() {
       <Sheet onClose={() => setScoringVisible(false)} title="How is this scored?" visible={scoringVisible}>
         <Text style={styles.sheetBody}>
           Your score is the share of your roadmap you&apos;ve completed, weighted by each task&apos;s
-          priority.
+          original scoring weight. Changing priority does not change the score.
         </Text>
       </Sheet>
 

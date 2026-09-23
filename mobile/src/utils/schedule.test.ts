@@ -131,6 +131,11 @@ describe('fits', () => {
 });
 
 describe('buildSchedule', () => {
+  it('fits a feasible budget even when one-week minimums defeat proportional rounding', () => {
+    const tasks = [1, 1, 8].map((estimatedWeeks, index) => task({ id: String(index), estimatedWeeks }));
+    const scheduled = buildSchedule(tasks, weeksFromNow(5), NOW, 'ambitious');
+    expect(scheduled.at(-1)?.targetDate).toBe(weeksFromNow(5));
+  });
   it('lays comfortable tasks end to end from now', () => {
     const tasks = [
       task({ id: 'a', estimatedWeeks: 2 }),

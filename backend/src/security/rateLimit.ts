@@ -33,7 +33,8 @@ export const createFirestoreRateLimiter = ({
   store,
   config,
   now = Date.now,
-}: { store: QuotaStore; config: RateLimitConfig; now?: () => number }): AiRateLimiter => async (uid) => {
+  globalLimits = [],
+}: { store: QuotaStore; config: RateLimitConfig; now?: () => number; globalLimits?: RateLimitConfig[] }): AiRateLimiter => async (uid) => {
   if (!uid || uid.includes('/')) throw new QuotaStoreError('AI quota is temporarily unavailable');
   const windowMs = config.windowSeconds * 1000;
   try {
@@ -42,6 +43,16 @@ export const createFirestoreRateLimiter = ({
       const windowStartedAtMs = Math.floor(nowMs / windowMs) * windowMs;
       const path = `_internal_ai_rate_limits/${uid}`;
       const existing = await transaction.get(path);
+      const globalQuotas = await Promise.all(globalLimits.map(async (limit) => {
+        const globalPath = `_internal_ai_global_limits/window-${limit.windowSeconds}`;
+        const started = Math.floor(nowMs / (limit.windowSeconds * 1000)) * limit.windowSeconds * 1000;
+        const saved = await transaction.get(globalPath);
+        return { limit, path: globalPath, started, count: saved?.windowStartedAtMs === started ? saved.count : 0 };
+      }));
+      for (const quota of globalQuotas) {
+        if (quota.count >= quota.limit.maxRequests) return { allowed: false,
+          retryAfterSeconds: Math.max(1, Math.ceil((quota.started + quota.limit.windowSeconds * 1000 - nowMs) / 1000)) };
+      }
       const count = existing?.windowStartedAtMs === windowStartedAtMs ? existing.count : 0;
       if (count >= config.maxRequests) {
         return {
@@ -50,6 +61,7 @@ export const createFirestoreRateLimiter = ({
         };
       }
       transaction.set(path, { windowStartedAtMs, count: count + 1, expiresAtMs: windowStartedAtMs + 2 * windowMs });
+      for (const quota of globalQuotas) transaction.set(quota.path, { windowStartedAtMs: quota.started, count: quota.count + 1, expiresAtMs: quota.started + quota.limit.windowSeconds * 2000 });
       return { allowed: true };
     });
   } catch {
@@ -94,4 +106,8 @@ const productionStore: QuotaStore = {
 export const consumeAiQuota = createFirestoreRateLimiter({
   store: productionStore,
   config: readRateLimitConfig(process.env),
+  globalLimits: [
+    { maxRequests: readPositiveInteger(process.env.AI_GLOBAL_REQUESTS_PER_MINUTE, 60, 10000), windowSeconds: 60 },
+    { maxRequests: readPositiveInteger(process.env.AI_GLOBAL_REQUESTS_PER_DAY, 1000, 1000000), windowSeconds: 86400 },
+  ],
 });

@@ -3,6 +3,7 @@ import Purchases, { type CustomerInfo } from 'react-native-purchases';
 
 import { hasProEntitlement } from './entitlements';
 import { checkProEntitlement } from './proStatus';
+import { isPurchasesSupported } from './revenueCat';
 
 export const useProStatus = () => {
   const [isPro, setIsPro] = useState(false);
@@ -15,6 +16,7 @@ export const useProStatus = () => {
 
   useEffect(() => {
     void refresh();
+    if (!isPurchasesSupported()) return;
 
     // Keeps every screen in sync when a purchase lands, without polling.
     const listener = (info: CustomerInfo) => setIsPro(hasProEntitlement(info));

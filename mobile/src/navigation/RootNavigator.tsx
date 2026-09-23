@@ -25,6 +25,7 @@ export type RootStackParamList = {
   MainTabs: undefined;
   TaskDetail: { taskId: string };
   UiGallery: undefined;
+  AddTarget: undefined;
 };
 
 export type MainTabParamList = {
@@ -157,6 +158,7 @@ export function RootNavigator() {
           <Stack.Group>
             <Stack.Screen component={MainTabs} name="MainTabs" />
             <Stack.Screen component={TaskDetailScreen} name="TaskDetail" />
+            <Stack.Screen component={OnboardingFlow} name="AddTarget" options={{ headerShown: true, title: 'Add target', gestureEnabled: false }} />
             {__DEV__ ? <Stack.Screen component={UiGalleryScreen} name="UiGallery" /> : null}
           </Stack.Group>
         ) : (

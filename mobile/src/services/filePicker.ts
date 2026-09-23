@@ -1,9 +1,9 @@
 import * as DocumentPicker from 'expo-document-picker';
-import { File } from 'expo-file-system';
+import { File, Paths } from 'expo-file-system';
 
 import { getErrorMessage, type ErrorMessage } from './errorMessages';
 
-const MAX_FILE_SIZE_BYTES = 2 * 1024 * 1024;
+const MAX_FILE_SIZE_BYTES = 2_000_000;
 
 export interface PickedFile {
   name: string;
@@ -43,17 +43,18 @@ export const pickPdf = async (): Promise<PickedFile | null> => {
     return null;
   }
 
-  const isPdf = asset.mimeType === 'application/pdf' || asset.name.toLowerCase().endsWith('.pdf');
-  if (!isPdf) {
-    throw new FilePickerError('not_pdf', 'That file is not a PDF.');
+  try {
+    const isPdf = asset.mimeType === 'application/pdf' || asset.name.toLowerCase().endsWith('.pdf');
+    if (!isPdf) throw new FilePickerError('not_pdf', 'That file is not a PDF.');
+    const size = new File(asset.uri).size;
+    if (!Number.isFinite(size) || size <= 0 || size > MAX_FILE_SIZE_BYTES) {
+      throw new FilePickerError('too_large', 'Choose a readable PDF up to 2 MB.');
+    }
+    return { name: asset.name, uri: asset.uri, size };
+  } catch (error) {
+    deleteCachedPdf(asset.uri);
+    throw error;
   }
-
-  const size = asset.size ?? 0;
-  if (size > MAX_FILE_SIZE_BYTES) {
-    throw new FilePickerError('too_large', 'That PDF is larger than 2 MB.');
-  }
-
-  return { name: asset.name, uri: asset.uri, size };
 };
 
 /**
@@ -61,7 +62,17 @@ export const pickPdf = async (): Promise<PickedFile | null> => {
  * is read here. expo-document-picker does the picking; expo-file-system only
  * reads the bytes.
  */
-export const readPdfBase64 = async (uri: string): Promise<string> => new File(uri).base64();
+export const deleteCachedPdf = (uri: string): void => {
+  // Only remove the picker-owned cache copy, never the user's original document.
+  if (!uri.startsWith(`${Paths.cache.uri.replace(/\/$/u, '')}/`)) return;
+  try { const file = new File(uri); if (file.exists) file.delete(); } catch { /* OS cache eviction is the fallback. */ }
+};
+
+export const readPdfBase64 = async (uri: string): Promise<string> => {
+  const file = new File(uri);
+  if (!file.size || file.size > MAX_FILE_SIZE_BYTES) throw new FilePickerError('too_large', 'Choose a readable PDF up to 2 MB.');
+  return file.base64();
+};
 
 const FILE_PICKER_MESSAGES: Readonly<Record<FilePickerErrorReason, ErrorMessage>> = {
   not_pdf: {

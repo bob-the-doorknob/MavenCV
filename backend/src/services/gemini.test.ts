@@ -25,14 +25,14 @@ describe('createGeminiJsonGenerator', () => {
     })).resolves.toEqual({ text: '{"word":"OK"}' });
 
     expect(createInteraction).toHaveBeenCalledWith({
-      model: 'gemini-3.8-flash',
+      model: 'gemini-3.6-flash',
       input: 'Return OK.',
       system_instruction: 'Return JSON.',
       response_format: { type: 'text', mime_type: 'application/json', schema },
       store: false,
     }, {
       timeout_ms: 45_000,
-      retries: expect.objectContaining({ strategy: 'attempt-count-backoff', maxRetries: 1 }),
+      retries: expect.objectContaining({ strategy: 'attempt-count-backoff', maxRetries: 0 }),
       retry_codes: ['503'],
     });
   });

@@ -6,6 +6,7 @@ import { StatusBar } from 'expo-status-bar';
 import { Button, Card, SectionLabel } from '../../components/ui';
 import type { Level } from '../../data/roles';
 import { generateRoadmap } from '../../services/api';
+import { checkProEntitlement } from '../../services/proStatus';
 import { getErrorMessage, type ErrorMessage } from '../../services/errorMessages';
 import { useAppStore } from '../../store/useAppStore';
 import { headerColors, radii, spacing, typography, type Theme } from '../../theme/tokens';
@@ -48,6 +49,8 @@ export function GeneratingScreen({
   const [errorInfo, setErrorInfo] = useState<ErrorMessage | null>(null);
   const [lineIndex, setLineIndex] = useState(0);
   const isInFlightRef = useRef(false);
+  const mounted = useRef(true);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
 
   const runGeneration = useCallback(async () => {
     if (isInFlightRef.current) {
@@ -57,6 +60,7 @@ export function GeneratingScreen({
     setStatus('loading');
     setErrorInfo(null);
     try {
+      if (useAppStore.getState().targets.length > 0 && !(await checkProEntitlement())) throw new Error('Pro is required to add another target.');
       const roadmap = await generateRoadmap({
         roleId,
         level,
@@ -64,6 +68,7 @@ export function GeneratingScreen({
         ...(customTitle ? { customTitle } : {}),
         ...(employer ? { employer } : {}),
       });
+      if (!mounted.current) return;
       useAppStore.getState().addTarget({
         roleId,
         level,

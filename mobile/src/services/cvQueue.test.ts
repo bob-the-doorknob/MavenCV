@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+vi.mock('./auth', () => ({ getAuthToken: async () => 'test-token' }));
 
 // The real module reaches for `window`, which doesn't exist under vitest's
 // node environment. Persist middleware only needs get/set/remove to resolve.
@@ -28,7 +29,7 @@ vi.mock('./api', async (importOriginal) => {
 import type { RoadmapTask } from '../types';
 import { useAppStore } from '../store/useAppStore';
 import { ApiError, generateCvBullet } from './api';
-import { processPendingCvEntries, retryCvEntry } from './cvQueue';
+import { processPendingCvEntries, retryCvEntry, setCvQueueActive } from './cvQueue';
 
 const mockedGenerateCvBullet = vi.mocked(generateCvBullet);
 
@@ -72,11 +73,35 @@ const deferred = <T>(): { promise: Promise<T>; resolve: (value: T) => void; reje
 };
 
 beforeEach(() => {
+  setCvQueueActive(true);
   useAppStore.getState().resetAll();
   mockedGenerateCvBullet.mockReset();
 });
 
 describe('processPendingCvEntries', () => {
+  it('drains newly queued work without losing it during an in-flight request', async () => {
+    seedPendingEntries(1);
+    const first = deferred<{ text: string }>();
+    mockedGenerateCvBullet.mockReturnValueOnce(first.promise).mockResolvedValue({ text: 'Next bullet' });
+    const run = processPendingCvEntries();
+    const id = useAppStore.getState().addMilestone({ title: 'Build 1 demo', doneWhen: 'Deployed', priority: 2, estimatedWeeks: 1 });
+    useAppStore.getState().completeTask(id, 'Deployed a demo');
+    first.resolve({ text: 'First bullet' });
+    await run;
+    expect(useAppStore.getState().cvEntries.every((entry) => entry.status === 'ready')).toBe(true);
+    expect(mockedGenerateCvBullet).toHaveBeenCalledTimes(2);
+  });
+  it('does not start another AI request after leaving the CV screen', async () => {
+    seedPendingEntries(2);
+    const first = deferred<{ text: string }>();
+    mockedGenerateCvBullet.mockReturnValueOnce(first.promise);
+    const run = processPendingCvEntries();
+    setCvQueueActive(false);
+    first.resolve({ text: 'First bullet' });
+    await run;
+    expect(mockedGenerateCvBullet).toHaveBeenCalledTimes(1);
+    expect(useAppStore.getState().cvEntries[1]?.status).toBe('pending');
+  });
   it('marks an entry ready on success', async () => {
     seedPendingEntries(1);
     mockedGenerateCvBullet.mockResolvedValueOnce({ text: 'Built 1 portfolio project.' });

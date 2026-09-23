@@ -15,7 +15,7 @@ const GENERIC: ErrorMessage = {
 const MESSAGES: Readonly<Record<ApiErrorKind, ErrorMessage>> = {
   rate_limited: {
     title: 'Too many requests',
-    message: 'Too many requests. Try again in a minute.',
+    message: 'AI capacity is temporarily limited. Please wait and try again later.',
     canRetry: true,
   },
   network: {
@@ -27,8 +27,8 @@ const MESSAGES: Readonly<Record<ApiErrorKind, ErrorMessage>> = {
   invalid_response: GENERIC,
   auth: {
     title: "Couldn't verify this device",
-    message: "We couldn't verify this device. Please restart the app.",
-    canRetry: false,
+    message: "We couldn't verify this device. Check your connection and retry. If this continues, contact support.",
+    canRetry: true,
   },
 };
 

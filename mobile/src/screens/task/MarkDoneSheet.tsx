@@ -29,8 +29,8 @@ export function MarkDoneSheet({ visible, onClose, taskId, onCompleted }: MarkDon
   }, [visible]);
 
   const save = (): void => {
-    // Fire-and-forget: the CV bullet is generated in the background, so the
-    // sheet closes immediately rather than waiting on the network.
+    if (!notes.trim()) return;
+    // Synchronous local completion; the CV screen generates the bullet later.
     completeTaskAndQueue(taskId, notes.trim());
     void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     onClose();
@@ -51,7 +51,8 @@ export function MarkDoneSheet({ visible, onClose, taskId, onCompleted }: MarkDon
         Numbers make your CV stronger, e.g. &apos;handled 5k rows&apos; or &apos;3 users tested
         it&apos;
       </Text>
-      <Button label="Mark as done" onPress={save} />
+      <Text style={styles.hint}>Add evidence of what you completed. Your CV bullet will generate when you open CV.</Text>
+      <Button disabled={!notes.trim()} label="Mark as done" onPress={save} />
     </Sheet>
   );
 }

@@ -1,0 +1,14 @@
+.git
+**/node_modules
+**/.env
+**/.env.*
+**/*.pem
+**/*.key
+**/*service-account*.json
+**/dist
+**/coverage
+mobile/*
+!mobile/package.json
+docs
+.codex
+.agents

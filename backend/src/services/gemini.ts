@@ -1,6 +1,12 @@
 import { GoogleGenAI } from '@google/genai';
 
 export const GEMINI_MODEL = 'gemini-3.6-flash';
+export class ProviderRateLimitError extends Error {}
+export const isProviderRateLimit = (error: unknown): boolean => {
+  if (error instanceof ProviderRateLimitError) return true;
+  if (typeof error !== 'object' || error === null) return false;
+  return ('status' in error && Number(error.status) === 429) || ('code' in error && Number(error.code) === 429);
+};
 
 export const createGeminiClient = (
   apiKey: string | undefined = process.env.GEMINI_API_KEY,
@@ -59,7 +65,7 @@ export const createGeminiJsonGenerator = (
       store: false,
     }, {
       timeout_ms: 45_000,
-      retries: { strategy: 'attempt-count-backoff', maxRetries: 1 },
+      retries: { strategy: 'attempt-count-backoff', maxRetries: 0 },
       retry_codes: ['503'],
     });
     return { text: response.output_text ?? undefined };

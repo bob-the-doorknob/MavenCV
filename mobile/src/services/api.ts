@@ -10,9 +10,9 @@ const MAX_EXPERIENCE_LENGTH = 4_000;
 /** normalizeCvBulletInput rejects a targetRole longer than this. */
 const MAX_TARGET_ROLE_LENGTH = 80;
 
-const ROADMAP_TIMEOUT_MS = 45_000;
-const CV_BULLET_TIMEOUT_MS = 30_000;
-const EXTRACT_PROFILE_TIMEOUT_MS = 30_000;
+const ROADMAP_TIMEOUT_MS = 120_000;
+const CV_BULLET_TIMEOUT_MS = 120_000;
+const EXTRACT_PROFILE_TIMEOUT_MS = 120_000;
 
 export type ApiErrorKind = 'rate_limited' | 'network' | 'server' | 'invalid_response' | 'auth';
 
@@ -26,7 +26,12 @@ export class ApiError extends Error {
   }
 }
 
-const isMockMode = (): boolean => process.env.EXPO_PUBLIC_USE_MOCK_API === 'true';
+const isRelease = (): boolean => typeof __DEV__ !== 'undefined' && !__DEV__;
+const isMockMode = (): boolean => {
+  const mock = process.env.EXPO_PUBLIC_USE_MOCK_API === 'true';
+  if (mock && isRelease()) throw new ApiError('server', 'Mock API is disabled in release builds.');
+  return mock;
+};
 
 const mockFailureKind = (): ApiErrorKind | undefined => {
   const value = process.env.EXPO_PUBLIC_MOCK_FAIL;
@@ -45,7 +50,9 @@ const requireBaseUrl = (): string => {
       'EXPO_PUBLIC_API_BASE_URL is not set. Set it in mobile/.env, or set EXPO_PUBLIC_USE_MOCK_API=true for local development.',
     );
   }
-  return baseUrl.replace(/\/$/u, '');
+  const normalized = baseUrl.trim().replace(/\/$/u, '');
+  if (isRelease() && !normalized.startsWith('https://')) throw new ApiError('server', 'Release builds require an HTTPS backend.');
+  return normalized;
 };
 
 /**
@@ -99,12 +106,12 @@ const sendRequest = async (
 ): Promise<unknown> => {
   const baseUrl = requireBaseUrl();
   const token = await getAuthToken();
+  if (!token) throw new ApiError('auth', 'Unable to authenticate. Check your connection and Firebase configuration.');
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
-  let response: Response;
   try {
-    response = await fetch(`${baseUrl}${path}`, {
+    const response = await fetch(`${baseUrl}${path}`, {
       ...init,
       method: 'POST',
       headers: {
@@ -113,21 +120,19 @@ const sendRequest = async (
       },
       signal: controller.signal,
     });
+    if (!response.ok) throw await readErrorResponse(response);
+    try { return await response.json(); }
+    catch (error) {
+      if (isAbortError(error)) throw error;
+      throw new ApiError('invalid_response', 'Response was not valid JSON.');
+    }
   } catch (error) {
+    if (error instanceof ApiError) throw error;
     throw new ApiError('network', isAbortError(error) ? 'Request timed out.' : 'Network request failed.');
   } finally {
     clearTimeout(timeout);
   }
 
-  if (!response.ok) {
-    throw await readErrorResponse(response);
-  }
-
-  try {
-    return await response.json();
-  } catch {
-    throw new ApiError('invalid_response', 'Response was not valid JSON.');
-  }
 };
 
 const requestJson = (path: `/${string}`, body: unknown, timeoutMs: number): Promise<unknown> =>
@@ -165,11 +170,12 @@ export const mapRoadmapResponse = (raw: unknown): RoadmapTask[] => {
     return {
       id: item.id,
       title: item.title,
-      doneWhen: '',
+      doneWhen: typeof item.doneWhen === 'string' ? item.doneWhen : '',
+      weight: typeof item.weight === 'number' && Number.isFinite(item.weight) && item.weight > 0 ? item.weight : 1,
       ...(typeof item.why === 'string' && item.why.trim() ? { why: item.why.trim() } : {}),
       steps: mapSteps(item.steps),
       estimatedWeeks: clampEstimatedWeeks(item.estimatedWeeks),
-      priority: 2,
+      priority: item.priority === 1 || item.priority === 3 ? item.priority : 2,
       status: 'not_started',
     };
   });
@@ -205,11 +211,6 @@ export interface GenerateRoadmapInput {
   experience: string;
 }
 
-const LEVEL_SUMMARIES: Readonly<Record<Level, string>> = {
-  internship: 'Targeting an internship while still studying.',
-  'entry-level': 'Targeting a first full-time role after graduating.',
-};
-
 /**
  * normalizeRoadmapInput rejects a targetRole.id it does not know, and a custom
  * role has no backend definition — so the id is sent only for a preset.
@@ -222,13 +223,12 @@ export const generateRoadmap = async (input: GenerateRoadmapInput): Promise<Road
     return mockGenerateRoadmap(input);
   }
 
-  // normalizeRoadmapInput takes { experience, targetRole: { id?, title,
-  // employer? }, targetIndustry? } — there is no slot for level, so it rides
-  // along in the experience text rather than being dropped.
+  // Level is separate from the candidate's evidence; never mutate their experience.
   const title = resolveRoleTitle(input.roleId, input.customTitle);
   const id = backendRoleId(input.roleId);
   const body = {
-    experience: `${input.experience}\n\n${LEVEL_SUMMARIES[input.level]}`.slice(0, MAX_EXPERIENCE_LENGTH),
+    experience: input.experience.slice(0, MAX_EXPERIENCE_LENGTH),
+    level: input.level,
     targetRole: {
       ...(id ? { id } : {}),
       title,
@@ -300,18 +300,19 @@ const mapExtractProfileResponse = (raw: unknown): ExtractProfileResult => {
 export const extractProfile = async (
   file: ExtractProfileFile,
   roleId?: string,
+  customTitle?: string,
 ): Promise<ExtractProfileResult> => {
   if (isMockMode()) {
     return mockExtractProfile(roleId);
   }
 
-  if (!roleId || !backendRoleId(roleId)) {
+  if ((!roleId || !backendRoleId(roleId)) && !customTitle?.trim()) {
     throw new ApiError('invalid_response', 'Choose one of the listed roles before uploading a CV.');
   }
 
   const raw = await requestJson(
     '/api/cv-profile',
-    { pdfBase64: file.pdfBase64, targetRoleId: roleId },
+    { pdfBase64: file.pdfBase64, ...(roleId && backendRoleId(roleId) ? { targetRoleId: roleId } : { targetRoleTitle: customTitle?.trim() }) },
     EXTRACT_PROFILE_TIMEOUT_MS,
   );
   return mapExtractProfileResponse(raw);

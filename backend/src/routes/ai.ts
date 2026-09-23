@@ -1,4 +1,5 @@
 import { Router, type Request, type Response } from 'express';
+import { ProviderRateLimitError } from '../services/gemini.js';
 
 import { publicTargetRoleCategories } from '../data/targets.js';
 import { authenticateAuthorization, AuthenticationError, type RequestAuthenticator } from '../security/auth.js';
@@ -35,7 +36,10 @@ const sendError = (response: Response, status: number, code: string, message: st
 };
 
 const handleError = (error: unknown, response: Response): void => {
-  if (error instanceof AuthenticationError) {
+  if (error instanceof ProviderRateLimitError) {
+    response.set('Retry-After', '60');
+    sendError(response, 429, 'RATE_LIMIT_EXCEEDED', 'AI capacity is temporarily exhausted. Please try again later.');
+  } else if (error instanceof AuthenticationError) {
     sendError(response, 401, 'AUTHENTICATION_REQUIRED', 'Authentication is required.');
   } else if (error instanceof RoadmapValidationError) {
     sendError(response, 400, 'INVALID_ROADMAP_INPUT', error.message);

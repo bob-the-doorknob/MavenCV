@@ -78,6 +78,27 @@ export const buildSchedule = (
       : 1;
 
   let cursor = now;
+  const remaining = tasks.filter((task) => task.status !== 'done');
+  const allocations = remaining.map((task) => Math.max(1, Math.floor(clampEstimatedWeeks(task.estimatedWeeks) * scale)));
+  if (scale < 1) {
+    const budget = Math.max(remainingCount, availableWeeks);
+    while (allocations.reduce((sum, weeks) => sum + weeks, 0) > budget) {
+      let largest = 0;
+      for (let index = 1; index < allocations.length; index += 1) {
+        if ((allocations[index] ?? 1) > (allocations[largest] ?? 1)) largest = index;
+      }
+      allocations[largest] = (allocations[largest] ?? 1) - 1;
+    }
+    while (allocations.reduce((sum, weeks) => sum + weeks, 0) < budget) {
+      let best = 0;
+      for (let index = 1; index < remaining.length; index += 1) {
+        if (clampEstimatedWeeks(remaining[index]?.estimatedWeeks) * scale - (allocations[index] ?? 1) >
+            clampEstimatedWeeks(remaining[best]?.estimatedWeeks) * scale - (allocations[best] ?? 1)) best = index;
+      }
+      allocations[best] = (allocations[best] ?? 1) + 1;
+    }
+  }
+  let allocationIndex = 0;
 
   return tasks.map((task) => {
     if (task.status === 'done') {
@@ -87,7 +108,7 @@ export const buildSchedule = (
     const estimate = clampEstimatedWeeks(task.estimatedWeeks);
     const weeks =
       remainingCount > 0 && scale < 1
-        ? Math.max(MIN_ESTIMATED_WEEKS, Math.round(estimate * scale))
+        ? allocations[allocationIndex++] ?? 1
         : estimate;
 
     cursor += weeks * MS_PER_WEEK;
