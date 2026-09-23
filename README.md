@@ -2,7 +2,7 @@
 
 Maven is an offline-first mobile career roadmap companion for university
 students. This repository contains an Expo React Native client and a thin Cloud
-Run backend that will own all Gemini interactions.
+Run backend that owns all Gemini interactions.
 
 ## Requirements
 
@@ -27,7 +27,8 @@ Run backend that will own all Gemini interactions.
 npm install
 ```
 
-Copy `.env.example` to `.env` and provide local values. `GEMINI_API_KEY` is
+Copy `.env.example` to `.env` for the backend and `mobile/.env.example` to
+`mobile/.env` for Expo. Provide local values in each. `GEMINI_API_KEY` is
 backend-only. RevenueCat mobile keys are public platform SDK keys, never
 RevenueCat secret keys.
 
@@ -41,8 +42,8 @@ npm run typecheck
 npm test
 ```
 
-RevenueCat uses Preview API Mode in Expo Go. Real purchases require an Expo
-development build.
+Purchases are disabled in Expo Go. Real purchases and the newly added
+SecureStore configuration require a rebuilt Expo development app.
 
 `npm run check:backend` runs the backend TypeScript check and backend test suite
 without making a live Gemini request. `npm run start:backend` loads the root
@@ -60,31 +61,34 @@ needs verification on a simulator or phone.
 
 ## Roadmap API and frontend handoff
 
-Both `POST /api/roadmap` and `POST /api/cv-bullet` require
+All three AI routes (`/api/roadmap`, `/api/cv-bullet`, `/api/cv-profile`) require
 `Authorization: Bearer <Firebase ID token>` from a signed-in user with a
 Firebase account. The mobile API client silently creates an anonymous account,
-stores its refresh token in AsyncStorage, refreshes the ID token, and includes
+stores its refresh token in OS SecureStore, caches ID tokens in memory, and includes
 it on each AI request. Set `EXPO_PUBLIC_FIREBASE_API_KEY` to the Firebase Web
 API key and enable the Anonymous provider in Firebase Authentication. The key is
-public configuration; keep `GEMINI_API_KEY` on the backend. Both routes share
-10 requests per user per 60 seconds by default. The app still needs UI handling
-for `401` and `429` when the generation screens are built.
-The daily checklist stays local and makes no AI requests. The setup screen loads
-the public `GET /api/roles` catalog, asks for one role and current experience,
+public configuration; keep `GEMINI_API_KEY` on the backend. All AI routes share
+10 requests per user per 60 seconds plus project limits of 60 per minute and
+1,000 per day by default. Provider rate limits return a safe 429 response.
+The daily checklist stays local and makes no AI requests. CV work queues locally
+and drains in the CV screen; leaving it prevents additional queued requests.
+The setup screen uses a bundled offline role catalog, asks for a role and current experience,
 then generates and saves that role's roadmap. The catalog has 14 roles in four
 categories; the backend returns only role labels in the catalog and inserts role guidance into the
 shared roadmap system instruction. For example, `quant` focuses on statistics,
-backtesting, and risk. One active role is supported in this setup flow.
+backtesting, and risk. Pro permits adding targets; saved targets remain accessible
+after expiry. Manage targets from the roadmap. No cloud roadmap sync is implemented.
 
 Setup also accepts a PDF CV up to 2 MB. The authenticated `POST /api/cv-profile`
-route accepts `{ "pdfBase64": "...", "targetRoleId": "quant" }` and returns an
+route accepts `{ "pdfBase64": "...", "targetRoleId": "quant" }` (or
+`targetRoleTitle` instead of the ID for custom roles) and returns an
 editable `experience` summary plus up to three `questions`. The mobile app asks
 the student to confirm or edit the extracted experience before requesting a
 roadmap. Manual experience entry remains available. The PDF is sent inline to
 Gemini with `store: false`; the backend does not save it. This extraction uses
 the shared AI quota and does not determine readiness or claim a skill level.
 
-Set `EXPO_PUBLIC_API_URL` to a backend address reachable from the device. The
+Set `EXPO_PUBLIC_API_BASE_URL` in `mobile/.env` to a backend address reachable from the device. The
 default `localhost` URL works only when the mobile runtime can reach the backend
 on the same host.
 
@@ -93,6 +97,7 @@ on the same host.
 ```json
 {
   "experience": "Built two TypeScript APIs and used PostgreSQL in coursework.",
+  "level": "internship",
   "targetRole": { "id": "backend-cloud", "title": "Backend / Cloud Engineer", "employer": "Optional employer" },
   "targetIndustry": "Fintech"
 }
@@ -103,7 +108,8 @@ mobile app sends the selected catalog `id`; the backend validates it and uses
 the catalog's canonical title even if a different title was submitted. Unknown
 IDs return `400 INVALID_ROADMAP_INPUT`. A successful response has `tasks`
 with 5–7 entries, each containing a server-generated `id`, a measurable
-`title`, a positive integer `weight`, and `status: "not_started"`. Weights sum
+`title`, `doneWhen`, `why`, `steps`, `estimatedWeeks` (1–8), `priority` (1–3),
+a positive integer `weight`, and `status: "not_started"`. Weights sum
 to 100 and the tasks map directly to the mobile `RoadmapTask` type. Invalid
 request data returns `400 INVALID_ROADMAP_INPUT`; invalid model output returns
 `502 ROADMAP_GENERATION_FAILED`. A quota store failure returns
@@ -179,10 +185,11 @@ docker run --env-file .env -p 8080:8080 maven-backend
 Cloud Run supplies `PORT`; the server defaults to `8080` locally.
 
 Firebase Admin uses Application Default Credentials locally and on Cloud Run.
-Provision a Firebase project with email-verified sign-in and a Firestore
+Provision a Firebase project with Anonymous authentication enabled and a Firestore
 database. Give the dedicated Cloud Run service account only the Firestore
-permissions needed for `_internal_ai_rate_limits`, configure Firestore TTL on
-its `expiresAt` field, and supply `GEMINI_API_KEY` from Secret Manager. Rotate
+permissions needed by the quota service, deny direct client access to
+`_internal_ai_rate_limits` and `_internal_ai_global_limits`, configure Firestore TTL on
+their `expiresAt` fields, and supply `GEMINI_API_KEY` from Secret Manager. Rotate
 any previously disclosed API key before public deployment. For public mobile
 traffic, use Cloud Run ingress `internal-and-cloud-load-balancing` behind an
 external Application Load Balancer with a Cloud Armor per-IP throttle. Cloud Run
@@ -193,5 +200,8 @@ Firebase App Check is a further abuse-control step before broad launch.
 ## Security
 
 The mobile app never imports a Gemini SDK or receives `GEMINI_API_KEY`. All AI
-requests will be routed through `backend/`. Local environment files are ignored
+requests are routed through `backend/`. Local environment files are ignored
 by Git.
+
+See [production readiness](docs/production-readiness.md) for launch blockers,
+configuration, test boundaries, rollback and device acceptance checks.

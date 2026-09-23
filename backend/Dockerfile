@@ -5,11 +5,11 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 COPY backend/package.json ./backend/package.json
 COPY mobile/package.json ./mobile/package.json
-RUN npm ci
+RUN npm ci --workspace @trajectory/backend --include-workspace-root=false
 
 COPY backend ./backend
 RUN npm run build --workspace @trajectory/backend
-RUN npm prune --omit=dev
+RUN npm prune --omit=dev --workspace @trajectory/backend --include-workspace-root=false
 
 FROM node:22-alpine AS runtime
 

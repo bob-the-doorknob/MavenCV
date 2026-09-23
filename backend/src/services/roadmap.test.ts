@@ -21,9 +21,13 @@ const milestones = [
   { verb: 'Implement', artifact: '20 integration tests', topic: 'API reliability' },
   { verb: 'Publish', artifact: '1 observability dashboard', topic: 'service health' },
   { verb: 'Validate', artifact: '2 failure drills', topic: 'incident recovery' },
-];
+].map((milestone) => ({ ...milestone, doneWhen: 'Publish the completed artifact.', why: 'Evidence of role skills.', steps: ['Build the artifact', 'Test and document it'], estimatedWeeks: 2, priority: 2 }));
 
 describe('roadmap input', () => {
+  it('accepts multiline experience from mobile without dropping the selected level', () => {
+    expect(normalizeRoadmapInput({ ...input, experience: 'Built APIs.\nUsed SQL.', level: 'internship' }))
+      .toMatchObject({ experience: 'Built APIs.\nUsed SQL.', level: 'internship' });
+  });
   it('resolves a catalog role ID to its canonical title', () => {
     expect(normalizeRoadmapInput({
       experience: 'Python and statistics coursework',
@@ -70,6 +74,18 @@ describe('roadmap input', () => {
 });
 
 describe('roadmap generation', () => {
+  it('returns real guidance, time estimates and priorities along with arithmetic weights', async () => {
+    const rich = milestones.map((milestone) => ({ ...milestone,
+      doneWhen: 'A working artifact and test results are published.',
+      why: 'Demonstrates practical skills through reviewable evidence.',
+      steps: ['Create the artifact', 'Test and document the result'],
+      estimatedWeeks: 3, priority: 3,
+    }));
+    const result = await generateRoadmap(input, { generateContent: async () => ({ text: JSON.stringify({ milestones: rich }) }) });
+    expect(result.tasks[0]).toMatchObject({ doneWhen: rich[0]?.doneWhen, why: rich[0]?.why,
+      steps: rich[0]?.steps, estimatedWeeks: 3, priority: 3 });
+    expect(result.tasks.reduce((sum, task) => sum + task.weight, 0)).toBe(100);
+  });
   it('adds trusted quant guidance to the system instruction', async () => {
     const generateContent = vi.fn().mockResolvedValue({ text: JSON.stringify({ milestones }) });
     const quantInput = normalizeRoadmapInput({ experience: 'Python and statistics coursework', targetRole: { id: 'quant', title: 'Quant' } });
@@ -85,7 +101,7 @@ describe('roadmap generation', () => {
     let id = 0;
     const result = await generateRoadmap(input, { generateContent }, () => `id-${++id}`);
     expect(result.tasks.map(({ weight }) => weight)).toEqual([17, 17, 17, 17, 16, 16]);
-    expect(result.tasks[0]).toEqual({ id: 'id-1', title: 'Build 3 REST endpoints transaction processing', weight: 17, status: 'not_started' });
+    expect(result.tasks[0]).toMatchObject({ id: 'id-1', title: 'Build 3 REST endpoints transaction processing', weight: 17, status: 'not_started', doneWhen: 'Publish the completed artifact.' });
     expect(result.tasks.every(({ status }) => status === 'not_started')).toBe(true);
     expect(generateContent).toHaveBeenCalledWith(expect.objectContaining({
       model: 'gemini-3.6-flash',

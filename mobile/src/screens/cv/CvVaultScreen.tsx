@@ -11,7 +11,7 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import Animated from 'react-native-reanimated';
 import Svg, { Path } from 'react-native-svg';
@@ -20,8 +20,8 @@ import { Button, Card, EmptyState, StatusNode } from '../../components/ui';
 import { usePressScale } from '../../components/ui/usePressScale';
 import { levelLabels, resolveRoleTitle } from '../../data/roles';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
-import { retryCvEntry, processPendingCvEntries } from '../../services/cvQueue';
-import { checkProEntitlement } from '../../services/proStatus';
+import { retryCvEntry, processPendingCvEntries, setCvQueueActive, useCvQueueStatus } from '../../services/cvQueue';
+import { useProStatus } from '../../services/useProStatus';
 import { useActiveTarget, useAppStore } from '../../store/useAppStore';
 import { minTouchTarget, radii, spacing, typography, type Theme } from '../../theme/tokens';
 import { useTheme } from '../../theme/useTheme';
@@ -36,24 +36,6 @@ type Navigation = NativeStackNavigationProp<RootStackParamList>;
 
 const BANNER_DURATION_MS = 2_500;
 
-const useIsPro = (): boolean => {
-  const [isPro, setIsPro] = useState(false);
-
-  useEffect(() => {
-    let active = true;
-    void checkProEntitlement().then((result) => {
-      if (active) {
-        setIsPro(result);
-      }
-    });
-    return () => {
-      active = false;
-    };
-  }, []);
-
-  return isPro;
-};
-
 export function CvVaultScreen() {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
@@ -61,7 +43,13 @@ export function CvVaultScreen() {
   const styles = useMemo(() => createStyles(theme), [theme]);
   const target = useActiveTarget();
   const allEntries = useAppStore((state) => state.cvEntries);
-  const isPro = useIsPro();
+  const { isPro } = useProStatus();
+  const queueMessage = useCvQueueStatus((state) => state.message);
+  useFocusEffect(useCallback(() => {
+    setCvQueueActive(true);
+    void processPendingCvEntries();
+    return () => setCvQueueActive(false);
+  }, []));
 
   const [refreshing, setRefreshing] = useState(false);
   const [banner, setBanner] = useState<string | null>(null);
@@ -88,7 +76,7 @@ export function CvVaultScreen() {
     [allEntries, target?.id],
   );
 
-  const readyCount = entries.filter((entry) => entry.status === 'ready').length;
+  const readyCount = entries.filter((entry) => entry.status === 'ready' && !needsNumber(entry.text)).length;
 
   const showBanner = useCallback((message: string) => {
     setBanner(message);
@@ -157,6 +145,7 @@ export function CvVaultScreen() {
           <CopyAllButton onPress={copyAll} />
         </View>
 
+        {queueMessage ? <Text accessibilityRole="alert" style={styles.subtitle}>{queueMessage}</Text> : null}
         {entries.length === 0 ? (
           <EmptyState message="Finish a task to get your first CV bullet." title="No bullets yet" />
         ) : (
@@ -263,7 +252,7 @@ function BulletCard({
           <ShimmerBar width="100%" />
           <ShimmerBar delayMs={120} width="92%" />
           <ShimmerBar delayMs={240} width="64%" />
-          <Text style={styles.pendingLabel}>Writing your CV bullet…</Text>
+          <Text style={styles.pendingLabel}>CV bullet queued. Pull to retry if generation pauses.</Text>
         </View>
       ) : entry.status === 'failed' ? (
         <View style={styles.block}>

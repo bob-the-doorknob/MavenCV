@@ -19,6 +19,8 @@ import { createId } from '../utils/id';
 import { calculateReadiness } from '../utils/readiness';
 
 const STORE_VERSION = 1;
+// Separate from persisted state: reporting a read failure must never write over it.
+export const useStorageStatus = create<{ ready: boolean; error: string | null }>(() => ({ ready: false, error: null }));
 
 /** At most this many tasks can be in focus at once. */
 export const MAX_FOCUS_TASKS = 2;
@@ -143,6 +145,7 @@ interface PersistedShape {
 /** Fills the fields added after the first release, leaving everything else untouched. */
 const normalizeTask = (task: PersistedRoadmapTask): RoadmapTask => ({
   ...task,
+  weight: typeof task.weight === 'number' && Number.isFinite(task.weight) && task.weight > 0 ? task.weight : task.priority,
   steps: task.steps ?? [],
   estimatedWeeks: clampEstimatedWeeks(task.estimatedWeeks),
 });
@@ -182,13 +185,27 @@ export const migrate = (persistedState: unknown): PersistedAppState => {
   if (persistedState === undefined || persistedState === null) {
     return emptyState;
   }
+  if (isRecord(persistedState) && Array.isArray(persistedState.targetRoles)) {
+    persistedState = {
+      targets: persistedState.targetRoles.map((target: unknown) => {
+        if (!isRecord(target) || !Array.isArray(target.tasks)) return target;
+        return { ...target, roleId: 'custom', customTitle: target.title, level: 'entry-level', experience: '', focusTaskIds: [],
+          roadmap: target.tasks.map((task: unknown) => isRecord(task) ? { ...task, doneWhen: '', priority: 2, steps: [], estimatedWeeks: 2 } : task) };
+      }),
+      activeTargetId: persistedState.activeTargetRoleId ?? null,
+      cvEntries: Array.isArray(persistedState.cvEntries) ? persistedState.cvEntries.map((entry: unknown) => isRecord(entry)
+        ? { ...entry, targetId: entry.targetRoleId, taskId: entry.sourceTaskId, status: 'ready' } : entry) : [],
+    };
+  }
   const check = checkPersistedAppState(persistedState);
   if (!check.ok) {
-    console.warn(`Maven: resetting persisted app state — ${check.reason}.`);
-    return emptyState;
+    console.warn(`Maven: preserving unreadable persisted app state — ${check.reason}.`);
+    throw new Error('Saved data could not be loaded. It has not been deleted.');
   }
   const persisted = persistedState as PersistedShape;
-  return { ...persisted, targets: persisted.targets.map(normalizeTarget) };
+  const targets = persisted.targets.map(normalizeTarget);
+  return { ...persisted, targets, activeTargetId: targets.some((target) => target.id === persisted.activeTargetId)
+    ? persisted.activeTargetId : targets[0]?.id ?? null };
 };
 
 export type AddTargetInput = Omit<
@@ -212,7 +229,7 @@ interface AppState extends PersistedAppState {
   setActiveTarget: (targetId: string | null) => void;
   removeTarget: (targetId: string) => void;
   startTask: (taskId: string) => void;
-  /** Don't call this directly from a screen — use completeTaskAndQueue from services/tasks.ts, which also fires the CV-bullet queue. */
+  /** Completes locally and creates one pending CV entry, without network calls. */
   completeTask: (taskId: string, notes: string) => void;
   editTask: (
     taskId: string,
@@ -317,7 +334,7 @@ export const useAppStore = create<AppState>()(
         set((state) => ({
           targets: mapActiveRoadmap(state.targets, state.activeTargetId, (tasks) =>
             tasks.map((task) =>
-              task.id === taskId
+              task.id === taskId && task.status !== 'done'
                 ? { ...task, status: 'in_progress', startedAt: task.startedAt ?? new Date().toISOString() }
                 : task,
             ),
@@ -327,7 +344,7 @@ export const useAppStore = create<AppState>()(
       completeTask: (taskId, notes) => {
         const { targets, activeTargetId } = get();
         const activeTarget = targets.find((target) => target.id === activeTargetId);
-        if (!activeTarget?.roadmap.some((task) => task.id === taskId)) {
+        if (!activeTarget?.roadmap.some((task) => task.id === taskId && task.status !== 'done')) {
           return;
         }
 
@@ -362,7 +379,7 @@ export const useAppStore = create<AppState>()(
       editTask: (taskId, updates) =>
         set((state) => ({
           targets: mapActiveRoadmap(state.targets, state.activeTargetId, (tasks) =>
-            tasks.map((task) => (task.id === taskId ? { ...task, ...updates } : task)),
+            tasks.map((task) => (task.id === taskId ? { ...task, weight: task.weight ?? task.priority, ...updates } : task)),
           ),
         })),
 
@@ -390,6 +407,10 @@ export const useAppStore = create<AppState>()(
           title: input.title.trim(),
           doneWhen: input.doneWhen.trim(),
           priority: input.priority,
+          weight: (() => {
+            const tasks = get().targets.find((target) => target.id === get().activeTargetId)?.roadmap ?? [];
+            return tasks.length ? tasks.reduce((sum, task) => sum + (task.weight ?? task.priority), 0) / tasks.length : 1;
+          })(),
           estimatedWeeks: clampEstimatedWeeks(input.estimatedWeeks),
           steps: [],
           status: 'not_started',
@@ -407,7 +428,7 @@ export const useAppStore = create<AppState>()(
       reorderTasks: (taskIds) =>
         set((state) => ({
           targets: mapActiveTarget(state.targets, state.activeTargetId, (target) => {
-            const ordered = taskIds
+            const ordered = Array.from(new Set(taskIds))
               .map((id) => target.roadmap.find((task) => task.id === id))
               .filter((task): task is RoadmapTask => task !== undefined);
             const rest = target.roadmap.filter((task) => !taskIds.includes(task.id));
@@ -427,7 +448,7 @@ export const useAppStore = create<AppState>()(
         set((state) => ({
           targets: mapActiveTarget(state.targets, state.activeTargetId, (target) => {
             const { targetDate: _removed, ...rest } = target;
-            return rest;
+            return { ...rest, roadmap: rest.roadmap.map(({ targetDate: _date, ...task }) => task) };
           }),
         })),
 
@@ -526,7 +547,25 @@ export const useAppStore = create<AppState>()(
     {
       name: 'trajectory-app-state',
       version: STORE_VERSION,
-      storage: createJSONStorage(() => AsyncStorage),
+      storage: createJSONStorage(() => ({
+        ...AsyncStorage,
+        setItem: async (name: string, value: string) => {
+          // Subsequent saves replace the backup too, so explicitly deleted personal
+          // data is not retained in a stale migration copy.
+          await AsyncStorage.setItem(`${name}-pre-migration-backup`, value);
+          await AsyncStorage.setItem(name, value);
+        },
+        getItem: async (name: string) => {
+          const saved = await AsyncStorage.getItem(name);
+          if (saved !== null) await AsyncStorage.setItem(`${name}-pre-migration-backup`, saved);
+          return saved;
+        },
+      })),
+      onRehydrateStorage: () => {
+        useStorageStatus.setState({ ready: false, error: null });
+        return (_state, error) => useStorageStatus.setState({ ready: !error,
+          error: error ? 'Saved data could not be loaded. Your original data is preserved. Retry or contact support; do not reinstall the app.' : null });
+      },
       // Runs on every rehydration (not just version bumps), so a same-version
       // but corrupted or pre-redesign payload still resets safely.
       merge: (persistedState, currentState) => ({
@@ -543,8 +582,9 @@ const activeTargetOf = (state: PersistedAppState): Target | null =>
 
 export const useActiveTarget = (): Target | null => useAppStore(activeTargetOf);
 
+const EMPTY_ROADMAP: RoadmapTask[] = [];
 export const useActiveRoadmap = (): RoadmapTask[] =>
-  useAppStore((state) => state.targets.find((target) => target.id === state.activeTargetId)?.roadmap ?? []);
+  useAppStore((state) => state.targets.find((target) => target.id === state.activeTargetId)?.roadmap ?? EMPTY_ROADMAP);
 
 export const useReadiness = (): number => calculateReadiness(useActiveRoadmap());
 

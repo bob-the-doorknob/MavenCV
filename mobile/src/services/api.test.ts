@@ -32,6 +32,7 @@ describe('mapRoadmapResponse', () => {
       {
         id: 't1',
         title: 'Build 1 thing',
+        weight: 34,
         doneWhen: '',
         steps: [],
         estimatedWeeks: 2,
@@ -272,7 +273,7 @@ describe('real-mode request contracts', () => {
     );
   });
 
-  it('sends the roadmap body normalizeRoadmapInput accepts, folding level into experience', async () => {
+  it('sends experience unchanged and level as an explicit field', async () => {
     const fetchMock = stubFetch({ json: async () => ({ tasks: [] }) });
 
     await generateRoadmap({
@@ -285,9 +286,10 @@ describe('real-mode request contracts', () => {
     const body = bodyOf(fetchMock);
     expect(body).toEqual({
       experience: expect.stringContaining('Built APIs.'),
+      level: 'internship',
       targetRole: { id: 'software-engineer', title: 'Software Engineer', employer: 'Example Corp' },
     });
-    expect(body.experience).toContain('internship');
+    expect(body.experience).toBe('Built APIs.');
   });
 
   it('omits targetRole.id for a custom role, since the backend would reject it', async () => {

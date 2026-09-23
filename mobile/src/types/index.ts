@@ -26,6 +26,8 @@ export interface RoadmapTask {
   /** True for milestones the user added themselves, rather than generated ones. */
   createdByUser?: boolean;
   priority: TaskPriority;
+  /** Stable scoring weight; legacy tasks fall back to their original priority. */
+  weight?: number;
   status: TaskStatus;
   startedAt?: string;
   completedAt?: string;

@@ -24,6 +24,7 @@ export function EditTaskSheet({ visible, onClose, task }: EditTaskSheetProps) {
   const [title, setTitle] = useState(task.title);
   const [doneWhen, setDoneWhen] = useState(task.doneWhen);
   const [priority, setPriority] = useState<TaskPriority>(task.priority);
+  const [notes, setNotes] = useState(task.notes ?? '');
 
   // Reopening starts from what is saved, not from an abandoned edit.
   useEffect(() => {
@@ -31,8 +32,9 @@ export function EditTaskSheet({ visible, onClose, task }: EditTaskSheetProps) {
       setTitle(task.title);
       setDoneWhen(task.doneWhen);
       setPriority(task.priority);
+      setNotes(task.notes ?? '');
     }
-  }, [visible, task.title, task.doneWhen, task.priority]);
+  }, [visible, task.title, task.doneWhen, task.priority, task.notes]);
 
   const trimmedTitle = title.trim();
   const canSave = trimmedTitle.length > 0;
@@ -45,6 +47,7 @@ export function EditTaskSheet({ visible, onClose, task }: EditTaskSheetProps) {
       title: trimmedTitle,
       doneWhen: doneWhen.trim(),
       priority,
+      notes: notes.trim(),
     });
     onClose();
   };
@@ -68,6 +71,7 @@ export function EditTaskSheet({ visible, onClose, task }: EditTaskSheetProps) {
         value={doneWhen}
       />
       <View style={styles.priorityBlock}>
+        {task.status === 'done' ? <TextArea label="Completion evidence (for CV retries)" maxLength={2000} onChangeText={setNotes} value={notes} /> : null}
         <SectionLabel>Priority</SectionLabel>
         <View style={styles.priorityRow}>
           {PRIORITIES.map((value) => (
@@ -79,7 +83,7 @@ export function EditTaskSheet({ visible, onClose, task }: EditTaskSheetProps) {
             />
           ))}
         </View>
-        <Text style={styles.hint}>Higher priority milestones move your score more.</Text>
+        <Text style={styles.hint}>Priority helps you choose what to work on. Scoring weights stay fixed.</Text>
       </View>
       <Button disabled={!canSave} label="Save" onPress={save} />
     </Sheet>

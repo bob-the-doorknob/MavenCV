@@ -1,4 +1,4 @@
-import { createGeminiClient, GEMINI_MODEL } from './gemini.js';
+import { createGeminiClient, GEMINI_MODEL, isProviderRateLimit, ProviderRateLimitError } from './gemini.js';
 import { findTargetRole, type TargetRoleDefinition } from '../data/targets.js';
 
 const MAX_PDF_BYTES = 2_000_000;
@@ -62,8 +62,12 @@ export const normalizeCvProfileInput = (value: unknown): CvProfileInput => {
   if (pdf.subarray(0, 5).toString('ascii') !== '%PDF-') {
     throw new CvProfileValidationError('CV must be a PDF');
   }
-  const targetRole = 'targetRoleId' in value && typeof value.targetRoleId === 'string'
+  let targetRole = 'targetRoleId' in value && typeof value.targetRoleId === 'string'
     ? findTargetRole(value.targetRoleId) : undefined;
+  if (!('targetRoleId' in value) && 'targetRoleTitle' in value && typeof value.targetRoleTitle === 'string' &&
+      value.targetRoleTitle.trim() && value.targetRoleTitle.length <= 120 && !/[\u0000-\u001f\u007f]/u.test(value.targetRoleTitle)) {
+    targetRole = { id: 'custom', title: value.targetRoleTitle.trim(), guidance: 'Extract relevant explicit career evidence.' } as TargetRoleDefinition;
+  }
   if (!targetRole) throw new CvProfileValidationError('Unknown target role');
   return { pdf, targetRole };
 };
@@ -95,18 +99,19 @@ export const generateCvProfile = async (
       model: GEMINI_MODEL,
       input: [
         { type: 'document', data: input.pdf.toString('base64'), mime_type: 'application/pdf' },
-        { type: 'text', text: 'Extract career-relevant experience from this CV for roadmap setup.' },
+        { type: 'text', text: `Extract career-relevant experience for this untrusted target role data: ${JSON.stringify({ title: input.targetRole.title, guidance: input.targetRole.guidance })}` },
       ],
-      system_instruction: `${SYSTEM_INSTRUCTION}\nTarget role: ${input.targetRole.title}. Relevant focus: ${input.targetRole.guidance}`,
+      system_instruction: SYSTEM_INSTRUCTION,
       response_format: { type: 'text', mime_type: 'application/json', schema: RESPONSE_SCHEMA },
       store: false,
     }, {
       timeout_ms: 45_000,
-      retries: { strategy: 'attempt-count-backoff', maxRetries: 1 },
+      retries: { strategy: 'attempt-count-backoff', maxRetries: 0 },
       retry_codes: ['503'],
     });
     return parseResult(response.output_text);
-  } catch {
+  } catch (error) {
+    if (isProviderRateLimit(error)) throw new ProviderRateLimitError('AI provider rate limited');
     throw new CvProfileGenerationError('CV extraction failed');
   }
 };

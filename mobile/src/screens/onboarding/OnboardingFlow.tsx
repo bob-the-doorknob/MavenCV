@@ -1,5 +1,8 @@
 import { useCallback, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
+import { useNavigation } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import type { RootStackParamList } from '../../navigation/RootNavigator';
 
 import { CUSTOM_ROLE_ID, type Level } from '../../data/roles';
 import { useTheme } from '../../theme/useTheme';
@@ -22,6 +25,8 @@ const MAX_CUSTOM_TITLE_LENGTH = 60;
  * flow is linear and its state dies with it.
  */
 export function OnboardingFlow() {
+  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+  const finish = useCallback(() => { if (navigation.canGoBack()) navigation.goBack(); }, [navigation]);
   const theme = useTheme();
   const [step, setStep] = useState<Step>('role');
   const [roleId, setRoleId] = useState<string | null>(null);
@@ -68,7 +73,7 @@ export function OnboardingFlow() {
         onBack={() => setStep('readyBy')}
         // Saving the target is what ends onboarding: the root navigator sees
         // the new target and swaps this flow out for the roadmap.
-        onDone={() => {}}
+        onDone={finish}
         roleId={roleId as string}
       />
     );
@@ -87,6 +92,7 @@ export function OnboardingFlow() {
         />
       ) : (
         <AboutYouScreen
+          customTitle={trimmedCustomTitle}
           canContinue={canContinueAboutYou}
           employer={employer}
           experience={experience}

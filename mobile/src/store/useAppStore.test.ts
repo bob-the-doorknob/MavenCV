@@ -35,6 +35,7 @@ const task = (overrides: Partial<RoadmapTask> = {}): RoadmapTask => ({
   steps: [],
   estimatedWeeks: 2,
   priority: 1,
+  weight: overrides.priority ?? 1,
   status: 'not_started',
   ...overrides,
 });
@@ -69,6 +70,23 @@ const fullCvEntry = (overrides: Partial<CvEntry> = {}): CvEntry => ({
 
 beforeEach(() => {
   useAppStore.getState().resetAll();
+});
+
+it('migrates the original scaffold without losing tasks, weights or CV bullets', () => {
+  const result = migrate({ targetRoles: [{ id: 'legacy-role', title: 'Engineer', createdAt: '2026-01-01',
+    tasks: [{ id: 'legacy-task', title: 'Build 1 app', weight: 75, status: 'done' }] }],
+    activeTargetRoleId: 'legacy-role', cvEntries: [{ id: 'legacy-bullet', targetRoleId: 'legacy-role',
+      sourceTaskId: 'legacy-task', text: 'Built 1 app.', createdAt: '2026-01-02' }] });
+  expect(result.activeTargetId).toBe('legacy-role');
+  expect(result.targets[0]?.roadmap[0]).toMatchObject({ id: 'legacy-task', weight: 75, status: 'done' });
+  expect(result.cvEntries[0]).toMatchObject({ text: 'Built 1 app.', targetId: 'legacy-role', taskId: 'legacy-task', status: 'ready' });
+});
+
+it('does not create duplicate CV entries when completion is tapped twice', () => {
+  useAppStore.getState().addTarget({ ...baseTargetInput, roadmap: [task()] });
+  useAppStore.getState().completeTask('task-1', 'Built 1 app.');
+  useAppStore.getState().completeTask('task-1', 'Built 1 app.');
+  expect(useAppStore.getState().cvEntries).toHaveLength(1);
 });
 
 describe('completeTask', () => {
@@ -254,7 +272,7 @@ describe('migrate', () => {
       cvEntries: [],
     };
 
-    expect(migrate(broken)).toEqual({ targets: [], activeTargetId: null, cvEntries: [] });
+    expect(() => migrate(broken)).toThrow('Saved data');
     expect(warnSpy).toHaveBeenCalledTimes(1);
     expect(warnSpy.mock.calls[0]?.[0]).toContain('targets');
 
@@ -275,7 +293,7 @@ describe('migrate', () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const preRedesign = { targetRoles: [{ id: 'old' }], activeTargetRoleId: 'old', cvEntries: [] };
 
-    expect(migrate(preRedesign)).toEqual({ targets: [], activeTargetId: null, cvEntries: [] });
+    expect(() => migrate(preRedesign)).toThrow('Saved data');
     expect(warnSpy).toHaveBeenCalledTimes(1);
 
     warnSpy.mockRestore();
@@ -346,7 +364,7 @@ describe('migrate', () => {
       cvEntries: [],
     };
 
-    expect(migrate(broken)).toEqual({ targets: [], activeTargetId: null, cvEntries: [] });
+    expect(() => migrate(broken)).toThrow('Saved data');
     expect(warnSpy).toHaveBeenCalledTimes(1);
 
     warnSpy.mockRestore();

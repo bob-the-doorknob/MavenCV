@@ -1,4 +1,4 @@
-import { createGeminiJsonGenerator, GEMINI_MODEL } from './gemini.js';
+import { createGeminiJsonGenerator, GEMINI_MODEL, isProviderRateLimit, ProviderRateLimitError } from './gemini.js';
 
 const MAX_TASK_TITLE_LENGTH = 200;
 const MAX_NOTES_LENGTH = 2_000;
@@ -178,6 +178,7 @@ export const generateCvBullet = async (
       });
       return parseCvBullet(response.text);
     } catch (error: unknown) {
+      if (isProviderRateLimit(error)) throw new ProviderRateLimitError('AI provider rate limited');
       if (attempt === 1) {
         throw error instanceof CvBulletGenerationError ? error : new CvBulletGenerationError('Gemini request failed');
       }

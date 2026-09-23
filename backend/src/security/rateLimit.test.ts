@@ -21,6 +21,18 @@ class FakeQuotaStore {
 }
 
 describe('AI quota', () => {
+  it('caps rotating users globally without consuming a denied user slot', async () => {
+    const records = new Map<string, StoredQuota>();
+    const consume = createFirestoreRateLimiter({
+      store: { runTransaction: async (operation) => operation({ get: async (path) => records.get(path), set: (path, quota) => { records.set(path, quota); } }) },
+      config: { maxRequests: 10, windowSeconds: 60 },
+      globalLimits: [{ maxRequests: 2, windowSeconds: 86400 }], now: () => 125000,
+    });
+    expect((await consume('a')).allowed).toBe(true);
+    expect((await consume('b')).allowed).toBe(true);
+    expect((await consume('c')).allowed).toBe(false);
+    expect(records.has('_internal_ai_rate_limits/c')).toBe(false);
+  });
   it('validates configuration once', () => {
     expect(readRateLimitConfig({})).toEqual({ maxRequests: 10, windowSeconds: 60 });
     expect(readRateLimitConfig({ AI_RATE_LIMIT_MAX_REQUESTS: '4', AI_RATE_LIMIT_WINDOW_SECONDS: '30' })).toEqual({ maxRequests: 4, windowSeconds: 30 });

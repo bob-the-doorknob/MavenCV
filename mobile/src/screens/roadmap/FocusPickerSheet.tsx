@@ -45,6 +45,7 @@ export function FocusPickerSheet({ visible, onClose, tasks, selectedIds }: Focus
 
   const save = (): void => {
     useAppStore.getState().setFocusTasks(picked);
+    useAppStore.getState().recordCheckIn();
     onClose();
   };
 

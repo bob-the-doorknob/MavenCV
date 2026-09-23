@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
 import { Button, Sheet } from '../../components/ui';
@@ -10,7 +10,6 @@ import { useTheme } from '../../theme/useTheme';
 const PRO_FEATURES = [
   'Export every bullet at once, ready to paste',
   'Unlimited target roles and roadmaps',
-  'Rewrites of any bullet you are not happy with',
 ] as const;
 
 interface ProUpsellSheetProps {
@@ -22,17 +21,21 @@ export function ProUpsellSheet({ visible, onClose }: ProUpsellSheetProps) {
   const theme = useTheme();
   const styles = useMemo(() => createStyles(theme), [theme]);
   const { refresh } = useProStatus();
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState('');
 
   const handleUpgrade = async (): Promise<void> => {
-    const entitled = await presentProPaywall();
-    await refresh();
-    if (entitled) onClose();
+    setBusy(true); setMessage('');
+    try { const entitled = await presentProPaywall(); await refresh(); if (entitled) onClose(); }
+    catch (error) { setMessage(error instanceof Error ? error.message : 'Purchase failed.'); }
+    finally { setBusy(false); }
   };
 
   const handleRestore = async (): Promise<void> => {
-    const entitled = await restorePurchases();
-    await refresh();
-    if (entitled) onClose();
+    setBusy(true); setMessage('');
+    try { const entitled = await restorePurchases(); await refresh(); if (entitled) onClose(); else setMessage('No active Pro purchase was found.'); }
+    catch (error) { setMessage(error instanceof Error ? error.message : 'Restore failed.'); }
+    finally { setBusy(false); }
   };
 
   return (
@@ -47,8 +50,9 @@ export function ProUpsellSheet({ visible, onClose }: ProUpsellSheetProps) {
           </Text>
         ))}
       </View>
-      <Button label="Upgrade" onPress={() => void handleUpgrade()} />
-      <Button label="Restore purchases" onPress={() => void handleRestore()} variant="ghost" />
+      {message ? <Text accessibilityRole="alert" style={styles.body}>{message}</Text> : null}
+      <Button disabled={busy} label="Upgrade" onPress={() => void handleUpgrade()} />
+      <Button disabled={busy} label="Restore purchases" onPress={() => void handleRestore()} variant="ghost" />
       <Button label="Not now" onPress={onClose} variant="ghost" />
     </Sheet>
   );

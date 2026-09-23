@@ -23,7 +23,7 @@ export const rolePresets: readonly RolePreset[] = [
   },
   {
     id: 'frontend-mobile',
-    title: 'Frontend / Mobile Engineer',
+    title: 'Frontend / Mobile Developer',
     category: 'Tech & engineering',
     description: 'Craft user-facing interfaces for web and mobile apps.',
   },
@@ -83,19 +83,19 @@ export const rolePresets: readonly RolePreset[] = [
   },
   {
     id: 'business-analyst',
-    title: 'Business Analyst',
+    title: 'Business / Strategy Analyst',
     category: 'Business & finance in tech',
     description: 'Bridge business needs and technical solutions.',
   },
   {
     id: 'quant',
-    title: 'Quantitative Trader/Analyst',
+    title: 'Quant / Trading',
     category: 'Business & finance in tech',
     description: 'Apply math and code to trading and risk models.',
   },
   {
     id: 'growth-marketing',
-    title: 'Growth Marketing',
+    title: 'Growth / Product Marketing',
     category: 'Business & finance in tech',
     description: 'Drive user acquisition and retention with data.',
   },

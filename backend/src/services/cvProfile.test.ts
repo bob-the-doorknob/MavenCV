@@ -35,7 +35,7 @@ describe('CV extraction', () => {
       input: expect.arrayContaining([expect.objectContaining({ type: 'document', mime_type: 'application/pdf', data: pdf })]),
       system_instruction: expect.stringContaining('Do not infer skill levels'),
     }), expect.any(Object));
-    expect(create.mock.calls[0]?.[0].system_instruction).toContain('Quant / Trading');
+    expect(JSON.stringify(create.mock.calls[0]?.[0].input)).toContain('Quant / Trading');
   });
 
   it('rejects malformed model output without exposing it', async () => {
