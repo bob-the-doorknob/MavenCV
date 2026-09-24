@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('./auth', () => ({ getAuthToken: async () => 'test-token' }));
+vi.mock('./appCheck', () => ({ getAppCheckToken: async () => 'test-app-check-token' }));
 
 // The real module reaches for `window`, which doesn't exist under vitest's
 // node environment. Persist middleware only needs get/set/remove to resolve.
@@ -166,6 +167,13 @@ describe('processPendingCvEntries', () => {
 });
 
 describe('retryCvEntry', () => {
+  it('keeps all queued entries pending when AI consent is missing', async () => {
+    seedPendingEntries(2);
+    mockedGenerateCvBullet.mockRejectedValueOnce(new ApiError('consent_required', 'off'));
+    await processPendingCvEntries();
+    expect(mockedGenerateCvBullet).toHaveBeenCalledTimes(1);
+    expect(useAppStore.getState().cvEntries.every((entry) => entry.status === 'pending')).toBe(true);
+  });
   it('puts a failed entry back to pending and reprocesses it', async () => {
     seedPendingEntries(1);
     mockedGenerateCvBullet.mockRejectedValueOnce(new ApiError('server', 'boom'));

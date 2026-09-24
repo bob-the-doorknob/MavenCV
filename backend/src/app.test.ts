@@ -12,6 +12,7 @@ import { AuthenticationError } from './security/auth.js';
 import { QuotaStoreError } from './security/rateLimit.js';
 
 const createApp = (dependencies: AppDependencies = {}) => createProductionApp({
+  attest: async () => undefined,
   authenticate: async () => ({ uid: 'user-1' }),
   consumeQuota: async () => ({ allowed: true }),
   ...dependencies,

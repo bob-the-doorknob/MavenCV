@@ -24,6 +24,8 @@ import { deleteCachedPdf, getFilePickerErrorMessage, pickPdf, readPdfBase64 } fr
 import { radii, spacing, typography, type Theme } from '../../theme/tokens';
 import { useTheme } from '../../theme/useTheme';
 import { EXPERIENCE_MAX_LENGTH, getExperienceFeedback } from '../../utils/experienceLimits';
+import { PrivacyControls } from '../../components/PrivacyControls';
+import { hasAiConsent, useConsent } from '../../services/privacy';
 
 const LEVEL_DESCRIPTIONS: Readonly<Record<Level, string>> = {
   internship: 'A summer or placement role while you are still studying.',
@@ -96,6 +98,7 @@ export function AboutYouScreen({
   onContinue,
   onBack,
 }: AboutYouScreenProps) {
+  const acceptedAt = useConsent((state) => state.acceptedAt);
   const theme = useTheme();
   const insets = useSafeAreaInsets();
   const styles = useMemo(() => createStyles(theme), [theme]);
@@ -135,6 +138,7 @@ export function AboutYouScreen({
   };
 
   const handleChoosePdf = async () => {
+    if (!hasAiConsent()) return;
     if (picking.current) return;
     picking.current = true;
     setIsExtracting(true);
@@ -218,6 +222,7 @@ export function AboutYouScreen({
 
           <View style={styles.field}>
             <SectionLabel>Your experience</SectionLabel>
+            <PrivacyControls />
             {questions.length > 0 ? <Text style={styles.subtitle}>Review the extracted claims. Add answers to these questions in your experience text:{'\n'}{questions.join('\n')}</Text> : null}
             <View style={styles.row}>
               <Chip label="Write it" onPress={() => handleSelectMode('write')} selected={mode === 'write'} />
@@ -253,7 +258,7 @@ export function AboutYouScreen({
             ) : (
               <View style={styles.uploadContainer}>
                 <Button
-                  disabled={isExtracting}
+                  disabled={isExtracting || !acceptedAt}
                   label="Choose PDF"
                   loading={isExtracting}
                   onPress={() => void handleChoosePdf()}
@@ -279,7 +284,7 @@ export function AboutYouScreen({
         </ScrollView>
 
         <View style={[styles.footer, { paddingBottom: insets.bottom }]}>
-          <Button label="Continue" onPress={onContinue} disabled={!canContinue} />
+          <Button label="Continue" onPress={onContinue} disabled={!canContinue || !acceptedAt} />
         </View>
       </View>
     </KeyboardAvoidingView>

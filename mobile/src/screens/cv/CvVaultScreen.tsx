@@ -31,6 +31,7 @@ import { AddNumberSheet } from './AddNumberSheet';
 import { EditBulletSheet } from './EditBulletSheet';
 import { ProUpsellSheet } from './ProUpsellSheet';
 import { ShimmerBar } from './ShimmerBar';
+import { PrivacyControls } from '../../components/PrivacyControls';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 
@@ -146,6 +147,7 @@ export function CvVaultScreen() {
         </View>
 
         {queueMessage ? <Text accessibilityRole="alert" style={styles.subtitle}>{queueMessage}</Text> : null}
+        <PrivacyControls />
         {entries.length === 0 ? (
           <EmptyState message="Finish a task to get your first CV bullet." title="No bullets yet" />
         ) : (

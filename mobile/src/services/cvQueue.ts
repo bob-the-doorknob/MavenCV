@@ -45,6 +45,10 @@ export const processPendingCvEntries = async (): Promise<void> => {
           ...(result.suggestions ? { suggestions: result.suggestions } : {}),
         });
       } catch (error) {
+        if (error instanceof ApiError && error.kind === 'consent_required') {
+          useCvQueueStatus.setState({ message: 'CV generation paused. Review AI sharing below, then pull to retry. Your pending bullets are kept.' });
+          return;
+        }
         if (error instanceof ApiError && (error.kind === 'rate_limited' || error.kind === 'network' || error.kind === 'auth')) {
           useCvQueueStatus.setState({ message: error.kind === 'rate_limited' ? 'AI capacity is limited. Wait before pulling to retry.' : 'CV generation paused. Check your connection, then pull to retry.' });
           return;

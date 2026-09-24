@@ -13,6 +13,11 @@ const GENERIC: ErrorMessage = {
 };
 
 const MESSAGES: Readonly<Record<ApiErrorKind, ErrorMessage>> = {
+  consent_required: {
+    title: 'AI sharing is off',
+    message: 'Review and enable AI processing on the experience screen or in the CV tab to continue.',
+    canRetry: false,
+  },
   rate_limited: {
     title: 'Too many requests',
     message: 'AI capacity is temporarily limited. Please wait and try again later.',

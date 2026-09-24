@@ -1,5 +1,7 @@
 import { beforeEach, expect, it, vi } from 'vitest';
 vi.mock('./auth', () => ({ getAuthToken: async () => 'test-token' }));
+vi.mock('./appCheck', () => ({ getAppCheckToken: async () => 'test-app-check-token' }));
+vi.mock('./privacy', () => ({ loadConsent: async () => undefined, hasAiConsent: () => true }));
 const mocks = vi.hoisted(() => ({ pick: vi.fn(), size: 100, remove: vi.fn(), read: vi.fn() }));
 vi.mock('expo-document-picker', () => ({ getDocumentAsync: mocks.pick }));
 vi.mock('expo-file-system', () => ({
