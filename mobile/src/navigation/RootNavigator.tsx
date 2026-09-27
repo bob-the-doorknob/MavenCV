@@ -4,6 +4,7 @@ import {
   DarkTheme,
   DefaultTheme,
   NavigationContainer,
+  type NavigatorScreenParams,
   type Theme as NavigationTheme,
 } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
@@ -14,6 +15,7 @@ import Svg, { Path } from 'react-native-svg';
 import { CvVaultScreen } from '../screens/cv/CvVaultScreen';
 import { OnboardingFlow } from '../screens/onboarding/OnboardingFlow';
 import { RoadmapScreen } from '../screens/roadmap/RoadmapScreen';
+import { SettingsScreen } from '../screens/settings/SettingsScreen';
 import { TaskDetailScreen } from '../screens/task/TaskDetailScreen';
 import { UiGalleryScreen } from '../screens/UiGalleryScreen';
 import { useAppStore } from '../store/useAppStore';
@@ -22,10 +24,12 @@ import { useTheme } from '../theme/useTheme';
 
 export type RootStackParamList = {
   Onboarding: undefined;
-  MainTabs: undefined;
+  /** Typed so a screen can jump straight to a tab, e.g. the CV tab. */
+  MainTabs: NavigatorScreenParams<MainTabParamList> | undefined;
   TaskDetail: { taskId: string };
   UiGallery: undefined;
   AddTarget: undefined;
+  Settings: undefined;
 };
 
 export type MainTabParamList = {
@@ -158,6 +162,7 @@ export function RootNavigator() {
           <Stack.Group>
             <Stack.Screen component={MainTabs} name="MainTabs" />
             <Stack.Screen component={TaskDetailScreen} name="TaskDetail" />
+            <Stack.Screen component={SettingsScreen} name="Settings" />
             <Stack.Screen component={OnboardingFlow} name="AddTarget" options={{ headerShown: true, title: 'Add target', gestureEnabled: false }} />
             {__DEV__ ? <Stack.Screen component={UiGalleryScreen} name="UiGallery" /> : null}
           </Stack.Group>

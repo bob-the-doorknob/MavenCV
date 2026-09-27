@@ -52,6 +52,8 @@ export interface Target {
   /** ISO date the user wants to be ready by. */
   targetDate?: string;
   schedulePace?: SchedulePace;
+  /** Set the first time this target hit 100%, so the celebration fires once. */
+  readyCelebratedAt?: string;
 }
 
 export type SchedulePace = 'comfortable' | 'ambitious';
