@@ -51,3 +51,37 @@ it.each([
 ])('rejects invalid production %s', (key, value) => {
   vi.stubEnv(key, value); expect(() => configure({ config: {} })).toThrow();
 });
+
+it('requires live staging configuration for the demo build profile', () => {
+  vi.stubEnv('EAS_BUILD_PROFILE', 'demo');
+  vi.stubEnv('EXPO_PUBLIC_APP_CHECK_DEBUG', 'true');
+  vi.stubEnv('EXPO_PUBLIC_REVENUECAT_ANDROID_KEY', 'goog_demo_public');
+  vi.stubEnv('GOOGLE_SERVICES_JSON', '');
+  expect(() => configure({ config: {} })).toThrow(/demo.*GOOGLE_SERVICES_JSON/iu);
+});
+
+it.each(['ios', 'android'])('accepts a complete staging demo configuration for %s with debug App Check', (platform) => {
+  vi.stubEnv('EAS_BUILD_PROFILE', 'demo');
+  vi.stubEnv('EAS_BUILD_PLATFORM', platform);
+  vi.stubEnv('EXPO_PUBLIC_APP_CHECK_DEBUG', 'true');
+  vi.stubEnv(platform === 'ios' ? 'GOOGLE_SERVICES_PLIST' : 'GOOGLE_SERVICES_JSON', `/private/${platform}-firebase-config`);
+  vi.stubEnv(platform === 'ios' ? 'EXPO_PUBLIC_REVENUECAT_IOS_KEY' : 'EXPO_PUBLIC_REVENUECAT_ANDROID_KEY', `${platform}_staging_public`);
+  expect(() => configure({ config: {} })).not.toThrow();
+});
+
+it.each([
+  ['EXPO_PUBLIC_USE_MOCK_API', 'true'],
+  ['EXPO_PUBLIC_APP_CHECK_DEBUG', 'false'],
+  ['EXPO_PUBLIC_API_BASE_URL', 'http://localhost:8080'],
+  ['EXPO_PUBLIC_FIREBASE_API_KEY', ''],
+  ['EXPO_PUBLIC_REVENUECAT_ANDROID_KEY', ''],
+  ['EXPO_PUBLIC_PRIVACY_POLICY_URL', ''],
+  ['EXPO_PUBLIC_TERMS_URL', ''],
+  ['EXPO_PUBLIC_SUPPORT_URL', ''],
+])('rejects demo configuration with unsafe %s', (key, value) => {
+  vi.stubEnv('EAS_BUILD_PROFILE', 'demo');
+  vi.stubEnv('EXPO_PUBLIC_APP_CHECK_DEBUG', 'true');
+  vi.stubEnv('EXPO_PUBLIC_REVENUECAT_ANDROID_KEY', 'goog_staging_public');
+  vi.stubEnv(key, value);
+  expect(() => configure({ config: {} })).toThrow();
+});

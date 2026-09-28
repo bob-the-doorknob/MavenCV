@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { Image, StyleSheet, Text, View } from 'react-native';
 
 import { radii, spacing, typography, type Theme } from '../theme/tokens';
 import { useTheme } from '../theme/useTheme';
@@ -24,9 +24,8 @@ export function BrandSplash({ message, isError = false, children }: BrandSplashP
   return (
     <View style={styles.screen}>
       <View style={styles.brand}>
+        <Image accessibilityIgnoresInvertColors source={require('../../assets/maven-mark.png')} style={styles.mark} />
         <Text style={styles.wordmark}>Maven</Text>
-        {/* The one ember on an otherwise paper screen — the brand mark. */}
-        <View style={styles.mark} />
       </View>
       {message ? (
         <Text
@@ -65,11 +64,9 @@ const createStyles = (theme: Theme) =>
       lineHeight: 48,
     },
     mark: {
-      backgroundColor: theme.colors.accent,
-      borderRadius: radii.pill,
-      height: 10,
-      marginTop: spacing.md,
-      width: 10,
+      borderRadius: radii.md,
+      height: 48,
+      width: 48,
     },
     message: {
       color: theme.colors.textSecondary,

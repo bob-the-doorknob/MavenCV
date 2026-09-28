@@ -45,6 +45,12 @@ npm test
 Purchases are disabled in Expo Go. Real purchases and the newly added
 SecureStore configuration require a rebuilt Expo development app.
 
+For the complete live staging walkthrough (Firebase/App Check, real Gemini,
+PDF extraction and store sandbox purchases), follow
+[Full demo setup](docs/full-demo-setup.md). The dedicated EAS `demo` profile
+rejects mock API configuration and missing staging values; it is not a
+production profile.
+
 `npm run check:backend` runs the backend TypeScript check and backend test suite
 without making a live Gemini request. `npm run start:backend` loads the root
 `.env` file when it exists.
