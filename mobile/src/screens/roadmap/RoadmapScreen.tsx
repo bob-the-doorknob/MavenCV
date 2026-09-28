@@ -14,6 +14,7 @@ import {
   Button,
   CategoryChip,
   Chip,
+  ConfirmationBanner,
   EmptyState,
   MilestoneRow,
   ScoreArc,
@@ -27,14 +28,17 @@ import { levelLabels, resolveRoleTitle } from '../../data/roles';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { useActiveTarget, useAppStore, useFocusTasks, useReadiness, isCheckInDue } from '../../store/useAppStore';
 import { checkProEntitlement } from '../../services/proStatus';
-import { presentProPaywall } from '../../services/revenueCat';
 import { headerColors, minTouchTarget, radii, spacing, typography, type Theme } from '../../theme/tokens';
 import { useTheme } from '../../theme/useTheme';
-import { countSteps, orderRoadmap, taskMetaLine } from '../../utils/groupTasks';
+import { countSteps, orderRoadmap, sortMilestones, taskMetaLine } from '../../utils/groupTasks';
 import { categoryKeyForRole } from '../../utils/roleCategory';
 import { fits, scheduleLabel } from '../../utils/schedule';
+import type { PaywallTrigger } from '../../utils/paywallCopy';
 import { formatDueDate, formatMonthYear, formatWeeksLeft } from '../../utils/targetDate';
-import type { RoadmapTask } from '../../types';
+import type { MilestoneSort, RoadmapTask } from '../../types';
+import { ProUpsellSheet } from '../cv/ProUpsellSheet';
+import { EditTargetSheet } from './EditTargetSheet';
+import { TargetSwitcherSheet } from './TargetSwitcherSheet';
 import { AddMilestoneSheet } from './AddMilestoneSheet';
 import { DoesNotFitSheet } from './DoesNotFitSheet';
 import { FocusPickerSheet } from './FocusPickerSheet';
@@ -42,6 +46,15 @@ import { ReadyBySheet } from './ReadyBySheet';
 import { TrimMilestonesSheet } from './TrimMilestonesSheet';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
+
+/** Long enough to notice and reach, short enough not to linger. */
+const UNDO_DURATION_MS = 6_000;
+
+const SORT_OPTIONS: ReadonlyArray<{ value: MilestoneSort; label: string }> = [
+  { value: 'roadmap', label: 'Roadmap order' },
+  { value: 'priority', label: 'Priority' },
+  { value: 'dueDate', label: 'Due date' },
+];
 
 const SCORE_LABELS = {
   internship: 'ready for internships',
@@ -57,16 +70,69 @@ export function RoadmapScreen() {
   const targets = useAppStore((state) => state.targets);
   const [targetsVisible, setTargetsVisible] = useState(false);
   const [addingTarget, setAddingTarget] = useState(false);
+  const [regenerating, setRegenerating] = useState(false);
+  const [upsellVisible, setUpsellVisible] = useState(false);
+  const [upsellTrigger, setUpsellTrigger] = useState<PaywallTrigger>('addTarget');
+  const [editTargetVisible, setEditTargetVisible] = useState(false);
+  const completionNotice = useAppStore((state) => state.completionNotice);
+  const completedTaskId = useAppStore((state) => state.completedTaskId);
+  const pendingUndo = useAppStore((state) => state.pendingUndo);
+
   const addTarget = async (): Promise<void> => {
     if (addingTarget) return;
     setAddingTarget(true);
     try {
-      if (!(await checkProEntitlement()) && !(await presentProPaywall())) return;
+      // The first target is free; a second one is the Pro moment.
+      if (useAppStore.getState().targets.length > 0 && !(await checkProEntitlement())) {
+        // Our own sheet first: it names this user's role and score, which the
+        // store-hosted paywall cannot. Upgrading happens from inside it.
+        setTargetsVisible(false);
+        setUpsellTrigger('addTarget');
+        setUpsellVisible(true);
+        return;
+      }
       setTargetsVisible(false);
       navigation.navigate('AddTarget');
     } catch (error) { Alert.alert('Unable to add target', error instanceof Error ? error.message : 'Please try again.'); }
     finally { setAddingTarget(false); }
   };
+  /**
+   * Regenerating throws away unfinished milestones, so it asks first and
+   * spells out exactly what survives.
+   */
+  const startRegenerate = async (): Promise<void> => {
+    if (!target || regenerating) return;
+    setRegenerating(true);
+    try {
+      if (!(await checkProEntitlement())) {
+        setTargetsVisible(false);
+        setUpsellTrigger('regenerate');
+        setUpsellVisible(true);
+        return;
+      }
+      const doneCount = target.roadmap.filter((entry) => entry.status === 'done').length;
+      const openCount = target.roadmap.length - doneCount;
+      Alert.alert(
+        'Regenerate this roadmap?',
+        `${doneCount} finished ${doneCount === 1 ? 'milestone' : 'milestones'} and the CV bullets they earned are kept. ${openCount} unfinished ${openCount === 1 ? 'milestone is' : 'milestones are'} replaced with a fresh set built from your current experience.`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Regenerate',
+            onPress: () => {
+              setTargetsVisible(false);
+              navigation.navigate('RegenerateRoadmap');
+            },
+          },
+        ],
+      );
+    } catch (error) {
+      Alert.alert('Unable to regenerate', error instanceof Error ? error.message : 'Please try again.');
+    } finally {
+      setRegenerating(false);
+    }
+  };
+
   const readiness = useReadiness();
   const focusTasks = useFocusTasks();
   const [scoringVisible, setScoringVisible] = useState(false);
@@ -78,15 +144,23 @@ export function RoadmapScreen() {
 
   const roadmap = target?.roadmap ?? [];
   const ordered = useMemo(() => orderRoadmap(roadmap), [roadmap]);
+  const sort = target?.milestoneSort ?? 'roadmap';
+  // Sorting is a view: the stored order never changes, so dragging is only
+  // offered while the list is in that order.
+  const visibleTasks = useMemo(() => sortMilestones(ordered.tasks, sort), [ordered.tasks, sort]);
+  const canReorder = sort === 'roadmap';
   const now = Date.now();
 
-  const milestones: MilestoneItem[] = ordered.tasks.map((task) => {
+  // A brand-new roadmap: nothing done, nothing started.
+  const neverStarted = ordered.doneCount === 0 && ordered.inProgressId === null;
+
+  const milestones: MilestoneItem[] = visibleTasks.map((task) => {
     const schedule = scheduleLabel(task, now, formatDueDate);
     return {
       id: task.id,
       title: task.title,
       status: task.status,
-      meta: taskMetaLine(task, task.id === ordered.upNextId),
+      meta: taskMetaLine(task, task.id === ordered.upNextId, { neverStarted }),
       ...(schedule ? { schedule: { text: schedule.text, tone: schedule.status } } : {}),
     };
   });
@@ -159,8 +233,10 @@ export function RoadmapScreen() {
           isFirst={index === 0}
           isLast={index === milestones.length - 1}
           item={item}
-          onLongPress={drag}
           onPress={() => openTask(item.id)}
+          {...(canReorder ? { onLongPress: drag } : {})}
+          // Replays the pop for a task completed on the screen above this one.
+          pulseKey={completedTaskId === item.id ? completedTaskId : undefined}
           travelledIndex={travelledIndex}
         />
       </View>
@@ -178,9 +254,24 @@ export function RoadmapScreen() {
             <SectionLabel color={headerColors.textSecondary}>Your roadmap</SectionLabel>
             <SettingsButton onPress={() => navigation.navigate('Settings')} />
           </View>
-          <Text style={styles.roleTitle}>
-            {target ? resolveRoleTitle(target.roleId, target.customTitle) : 'No target role'}
-          </Text>
+          <Pressable
+            accessibilityHint="Switch, edit or add a target"
+            accessibilityLabel={
+              target
+                ? `${resolveRoleTitle(target.roleId, target.customTitle)}. Manage targets.`
+                : 'No target role'
+            }
+            accessibilityRole="button"
+            android_ripple={{ color: headerColors.control }}
+            disabled={!target}
+            onPress={() => setTargetsVisible(true)}
+            style={styles.roleTitleTarget}
+          >
+            <Text style={styles.roleTitle}>
+              {target ? resolveRoleTitle(target.roleId, target.customTitle) : 'No target role'}
+            </Text>
+            {target ? <Text style={styles.roleTitleHint}>Tap to switch or edit</Text> : null}
+          </Pressable>
           {target ? (
             <View style={styles.headerChips}>
               <CategoryChip category={categoryKeyForRole(target.roleId)} />
@@ -200,8 +291,9 @@ export function RoadmapScreen() {
           <Pressable
             accessibilityLabel="How is this scored?"
             accessibilityRole="button"
-            hitSlop={8}
+            hitSlop={12}
             onPress={() => setScoringVisible(true)}
+            style={styles.scoringLinkTarget}
           >
             <Text style={styles.scoringLink}>How is this scored?</Text>
           </Pressable>
@@ -218,7 +310,6 @@ export function RoadmapScreen() {
         ) : null}
 
         <View style={styles.section}>
-          <Button label="Manage target roles" onPress={() => setTargetsVisible(true)} variant="ghost" />
           <ReadyByRow
             onPress={() => setReadyByVisible(true)}
             {...(target?.targetDate ? { targetDate: target.targetDate } : {})}
@@ -259,9 +350,23 @@ export function RoadmapScreen() {
               <Button label={isCheckInDue(target, now) ? 'Weekly check-in: review your focus' : 'Change current focus'} onPress={() => setFocusPickerVisible(true)} variant="ghost" />
             </View>
 
-            <View style={styles.milestonesLabel}>
-              <SectionLabel>Milestones</SectionLabel>
-              <Text style={styles.focusLimit}>Hold to reorder</Text>
+            <View style={styles.section}>
+              <View style={styles.milestonesLabel}>
+                <SectionLabel>Milestones</SectionLabel>
+                <Text style={styles.focusLimit}>
+                  {canReorder ? 'Hold to reorder' : 'Sorted view'}
+                </Text>
+              </View>
+              <View style={styles.sortRow}>
+                {SORT_OPTIONS.map((option) => (
+                  <Chip
+                    key={option.value}
+                    label={option.label}
+                    onPress={() => useAppStore.getState().setMilestoneSort(option.value)}
+                    selected={sort === option.value}
+                  />
+                ))}
+              </View>
             </View>
           </>
         )}
@@ -296,13 +401,24 @@ export function RoadmapScreen() {
     <View style={styles.screen}>
       {/* The header block behind the status bar is always dark. */}
       <StatusBar style="light" />
-      <Sheet onClose={() => setTargetsVisible(false)} title="Target roles" visible={targetsVisible}>
-        {targets.map((item) => <Button key={item.id} label={`${item.id === target?.id ? 'Current: ' : ''}${resolveRoleTitle(item.roleId, item.customTitle)}`} variant="ghost" onPress={() => { useAppStore.getState().setActiveTarget(item.id); setTargetsVisible(false); }} />)}
-        <Button disabled={addingTarget} label="Add another target (Pro)" onPress={() => void addTarget()} />
-        {target ? <Button label="Delete current target and its CV bullets" variant="ghost" onPress={() => Alert.alert('Delete target?', 'This removes this target and its CV bullets from this device. This cannot be undone.', [
-          { text: 'Cancel', style: 'cancel' }, { text: 'Delete', style: 'destructive', onPress: () => { useAppStore.getState().removeTarget(target.id); setTargetsVisible(false); } },
-        ])} /> : null}
-      </Sheet>
+      <TargetSwitcherSheet
+        activeTargetId={target?.id ?? null}
+        onAddTarget={() => void addTarget()}
+        onClose={() => setTargetsVisible(false)}
+        onEditTarget={() => {
+          setTargetsVisible(false);
+          setEditTargetVisible(true);
+        }}
+        onRegenerate={() => void startRegenerate()}
+        targets={targets}
+        visible={targetsVisible}
+      />
+
+      <EditTargetSheet
+        onClose={() => setEditTargetVisible(false)}
+        target={target}
+        visible={editTargetVisible}
+      />
 
       {/* The list owns the top inset, not the header element inside it — a
           padded child of ListHeaderComponent is not reliably respected. */}
@@ -331,6 +447,20 @@ export function RoadmapScreen() {
       {/* Keeps the status bar sitting on the header's own dark, both at rest
           and once the list scrolls under it. */}
       <View pointerEvents="none" style={[styles.statusBarScrim, { height: insets.top }]} />
+
+      {/* Set by the task screen as it pops, so the arc, the node pop and this
+          all land together on the screen the user is looking at. */}
+      <ConfirmationBanner
+        message={completionNotice}
+        onDismiss={() => useAppStore.getState().clearCompletionNotice()}
+      />
+
+      <ConfirmationBanner
+        action={{ label: 'Undo', onPress: () => useAppStore.getState().undoDelete() }}
+        durationMs={UNDO_DURATION_MS}
+        message={pendingUndo?.kind === 'task' ? pendingUndo.message : null}
+        onDismiss={() => useAppStore.getState().clearPendingUndo()}
+      />
 
       <Sheet onClose={() => setScoringVisible(false)} title="How is this scored?" visible={scoringVisible}>
         <Text style={styles.sheetBody}>
@@ -380,6 +510,12 @@ export function RoadmapScreen() {
       />
 
       <AddMilestoneSheet onClose={() => setAddMilestoneVisible(false)} visible={addMilestoneVisible} />
+
+      <ProUpsellSheet
+        onClose={() => setUpsellVisible(false)}
+        trigger={upsellTrigger}
+        visible={upsellVisible}
+      />
     </View>
   );
 }
@@ -590,11 +726,16 @@ const createStyles = (theme: Theme) =>
       gap: spacing.xl,
       paddingTop: spacing.md,
     },
+    sortRow: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: spacing.sm,
+    },
+    // Sits inside styles.section now, which owns the horizontal padding.
     milestonesLabel: {
       alignItems: 'center',
       flexDirection: 'row',
       justifyContent: 'space-between',
-      paddingHorizontal: spacing.lg,
     },
     milestoneRow: {
       paddingHorizontal: spacing.lg,
@@ -602,6 +743,10 @@ const createStyles = (theme: Theme) =>
     header: {
       alignItems: 'center',
       backgroundColor: headerColors.background,
+      // #17191E on a #111214 background is nearly invisible, so in dark mode
+      // the block gets a hairline edge to separate it from the page.
+      borderBottomWidth: theme.mode === 'dark' ? StyleSheet.hairlineWidth : 0,
+      borderColor: theme.colors.border,
       borderBottomLeftRadius: radii.header,
       borderBottomRightRadius: radii.header,
       gap: spacing.md,
@@ -643,6 +788,18 @@ const createStyles = (theme: Theme) =>
       lineHeight: typography.body.lineHeight,
       textAlign: 'center',
     },
+    roleTitleTarget: {
+      alignItems: 'center',
+      gap: 2,
+      paddingHorizontal: spacing.sm,
+      paddingVertical: spacing.xs,
+    },
+    roleTitleHint: {
+      color: headerColors.textSecondary,
+      fontFamily: typography.caption.fontFamily,
+      fontSize: typography.caption.fontSize,
+      lineHeight: typography.caption.lineHeight,
+    },
     roleTitle: {
       color: headerColors.text,
       fontFamily: typography.title.fontFamily,
@@ -663,6 +820,12 @@ const createStyles = (theme: Theme) =>
       fontFamily: typography.caption.fontFamily,
       fontSize: typography.caption.fontSize,
       lineHeight: typography.caption.lineHeight,
+    },
+    scoringLinkTarget: {
+      alignItems: 'center',
+      justifyContent: 'center',
+      minHeight: minTouchTarget,
+      paddingHorizontal: spacing.sm,
     },
     scoringLink: {
       color: headerColors.text,
@@ -698,7 +861,8 @@ const createStyles = (theme: Theme) =>
       alignItems: 'center',
       backgroundColor: theme.colors.surface,
       borderColor: theme.colors.border,
-      borderRadius: radii.md,
+      // Card radius: this is a surface, not a button.
+      borderRadius: radii.lg,
       borderWidth: 1,
       flexDirection: 'row',
       gap: spacing.md,

@@ -6,20 +6,20 @@ import { Button, Sheet } from '../../components/ui';
 import { LegalLinks } from '../../components/PrivacyControls';
 import { presentProPaywall, restorePurchases } from '../../services/revenueCat';
 import { useProStatus } from '../../services/useProStatus';
+import { useActiveTarget, useAppStore, useReadiness } from '../../store/useAppStore';
+import { resolveRoleTitle } from '../../data/roles';
 import { spacing, typography, type Theme } from '../../theme/tokens';
 import { useTheme } from '../../theme/useTheme';
-
-const PRO_FEATURES = [
-  'Export every bullet at once, ready to paste',
-  'Unlimited target roles and roadmaps',
-] as const;
+import { paywallCopy, type PaywallTrigger } from '../../utils/paywallCopy';
 
 interface ProUpsellSheetProps {
   visible: boolean;
   onClose: () => void;
+  /** Which locked action brought the user here — it changes the pitch. */
+  trigger?: PaywallTrigger;
 }
 
-export function ProUpsellSheet({ visible, onClose }: ProUpsellSheetProps) {
+export function ProUpsellSheet({ visible, onClose, trigger = 'exportBullets' }: ProUpsellSheetProps) {
   const theme = useTheme();
   const { height } = useWindowDimensions();
   const insets = useSafeAreaInsets();
@@ -28,6 +28,22 @@ export function ProUpsellSheet({ visible, onClose }: ProUpsellSheetProps) {
   const { refresh } = useProStatus();
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
+
+  // The pitch reads back what this user has actually built.
+  const target = useActiveTarget();
+  const readiness = useReadiness();
+  const bulletCount = useAppStore(
+    (state) =>
+      state.cvEntries.filter((entry) => entry.targetId === target?.id && entry.status === 'ready')
+        .length,
+  );
+  const targetCount = useAppStore((state) => state.targets.length);
+  const copy = paywallCopy(trigger, {
+    roleTitle: target ? resolveRoleTitle(target.roleId, target.customTitle) : null,
+    readiness,
+    bulletCount,
+    targetCount,
+  });
 
   const handleUpgrade = async (): Promise<void> => {
     setBusy(true); setMessage('');
@@ -44,20 +60,18 @@ export function ProUpsellSheet({ visible, onClose }: ProUpsellSheetProps) {
   };
 
   return (
-    <Sheet onClose={onClose} title="Export all bullets is a Pro feature" visible={visible}>
+    <Sheet onClose={onClose} title={copy.title} visible={visible}>
       <ScrollView style={styles.scroll} contentContainerStyle={styles.list}>
-      <Text style={styles.body}>
-        You can still copy bullets one at a time. Pro adds the bulk export and a few other things:
-      </Text>
+      <Text style={styles.body}>{copy.body}</Text>
       <View style={styles.list}>
-        {PRO_FEATURES.map((feature) => (
+        {copy.features.map((feature) => (
           <Text key={feature} style={styles.listItem}>
             • {feature}
           </Text>
         ))}
       </View>
       {message ? <Text accessibilityRole="alert" style={styles.body}>{message}</Text> : null}
-      <Button disabled={busy} label="Upgrade" onPress={() => void handleUpgrade()} />
+      <Button disabled={busy} label={copy.cta} onPress={() => void handleUpgrade()} />
       <LegalLinks />
       <Button disabled={busy} label="Restore purchases" onPress={() => void handleRestore()} variant="ghost" />
       <Button label="Not now" onPress={onClose} variant="ghost" />

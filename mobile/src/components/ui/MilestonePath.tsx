@@ -75,6 +75,8 @@ export interface MilestoneRowProps {
   onLongPress?: () => void;
   /** True while this row is the one being dragged. */
   isDragging?: boolean;
+  /** Changing this replays the node's completion pop. */
+  pulseKey?: string | undefined;
 }
 
 /**
@@ -96,6 +98,7 @@ export function MilestoneRow({
   onPress,
   onLongPress,
   isDragging = false,
+  pulseKey,
 }: MilestoneRowProps) {
   const theme = useTheme();
   const styles = useMemo(() => createStyles(theme), [theme]);
@@ -175,7 +178,14 @@ export function MilestoneRow({
         >
           <Animated.View style={[styles.travelled, travelledStyle]} />
         </View>
-        <StatusNode backgroundColor={theme.colors.background} status={item.status} />
+        {/* The completion haptic comes from the mark-done sheet, so the node
+            pops silently rather than buzzing a second time. */}
+        <StatusNode
+          backgroundColor={theme.colors.background}
+          haptics={false}
+          pulseKey={pulseKey}
+          status={item.status}
+        />
       </View>
       {onPress ? (
         <Animated.View style={[styles.contentWrapper, press.style, liftStyle]}>

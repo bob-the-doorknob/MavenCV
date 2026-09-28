@@ -1,6 +1,7 @@
 import { resolveRoleTitle } from '../data/roles';
 import { useAppStore } from '../store/useAppStore';
 import { ApiError, generateCvBullet } from './api';
+import { getErrorMessage } from './errorMessages';
 import { create } from 'zustand';
 
 // Module-level lock: only one run at a time. A call while running is ignored.
@@ -50,7 +51,11 @@ export const processPendingCvEntries = async (): Promise<void> => {
           return;
         }
         if (error instanceof ApiError && (error.kind === 'rate_limited' || error.kind === 'network' || error.kind === 'auth')) {
-          useCvQueueStatus.setState({ message: error.kind === 'rate_limited' ? 'AI capacity is limited. Wait before pulling to retry.' : 'CV generation paused. Check your connection, then pull to retry.' });
+          // The cause matters here: a 401 is not a connection problem, and
+          // telling the user to check their wifi sends them nowhere.
+          useCvQueueStatus.setState({
+            message: `${getErrorMessage(error).message} Pull to retry — your pending bullets are kept.`,
+          });
           return;
         }
         useAppStore.getState().updateCvEntry(entry.id, { status: 'failed' });

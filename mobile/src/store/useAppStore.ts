@@ -7,6 +7,7 @@ import type { Level } from '../data/roles';
 import type {
   CvEntry,
   CvEntryStatus,
+  MilestoneSort,
   RoadmapTask,
   SchedulePace,
   Target,
@@ -62,6 +63,9 @@ const isTaskStepArray = (value: unknown): value is TaskStep[] =>
 
 const isNumber = (value: unknown): value is number =>
   typeof value === 'number' && Number.isFinite(value);
+
+const isMilestoneSort = (value: unknown): value is MilestoneSort =>
+  value === 'roadmap' || value === 'priority' || value === 'dueDate';
 
 const isSchedulePace = (value: unknown): value is SchedulePace =>
   value === 'comfortable' || value === 'ambitious';
@@ -124,6 +128,7 @@ const isTarget = (value: unknown): value is PersistedTarget =>
   isOptional(value.targetDate, isString) &&
   isOptional(value.schedulePace, isSchedulePace) &&
   isOptional(value.readyCelebratedAt, isString) &&
+  isOptional(value.milestoneSort, isMilestoneSort) &&
   Array.isArray(value.roadmap) &&
   value.roadmap.every(isRoadmapTask);
 
@@ -218,6 +223,28 @@ export type AddTargetInput = Omit<
 
 export type AddCvEntryInput = Omit<CvEntry, 'id' | 'createdAt'>;
 
+/**
+ * Enough to put back exactly what a delete removed, including where it sat.
+ * Transient: an undo that outlives the banner is worse than no undo.
+ */
+export type PendingUndo =
+  | {
+      kind: 'task';
+      message: string;
+      targetId: string;
+      index: number;
+      task: RoadmapTask;
+      focusTaskIds: string[];
+      cvEntries: CvEntry[];
+    }
+  | { kind: 'cvEntry'; message: string; index: number; entry: CvEntry };
+
+export interface TargetProfileUpdate {
+  level?: Level;
+  employer?: string;
+  experience?: string;
+}
+
 export interface AddMilestoneInput {
   title: string;
   doneWhen: string;
@@ -229,6 +256,13 @@ interface AppState extends PersistedAppState {
   addTarget: (input: AddTargetInput) => string;
   setActiveTarget: (targetId: string | null) => void;
   removeTarget: (targetId: string) => void;
+  /** Edits the stored profile only — the roadmap is left exactly as it is. */
+  updateTargetProfile: (targetId: string, updates: TargetProfileUpdate) => void;
+  /**
+   * Swaps the active target's unfinished milestones for freshly generated
+   * ones. Finished work and the CV bullets it earned are kept.
+   */
+  replaceUnfinishedRoadmap: (tasks: RoadmapTask[]) => void;
   startTask: (taskId: string) => void;
   /** Completes locally and creates one pending CV entry, without network calls. */
   completeTask: (taskId: string, notes: string) => void;
@@ -237,6 +271,18 @@ interface AppState extends PersistedAppState {
     updates: Partial<Pick<RoadmapTask, 'title' | 'doneWhen' | 'priority' | 'notes'>>,
   ) => void;
   deleteTask: (taskId: string) => void;
+  /** How the milestone list is ordered on screen, for the active target. */
+  setMilestoneSort: (sort: MilestoneSort) => void;
+  /** Deletes a CV bullet outright, keeping it recoverable until the undo expires. */
+  deleteCvEntry: (id: string) => void;
+  /** Puts back whatever the last delete removed. No-op once it has expired. */
+  undoDelete: () => void;
+  clearPendingUndo: () => void;
+  pendingUndo: PendingUndo | null;
+  /** Moves a step within its task. Out-of-range moves are ignored. */
+  moveStep: (taskId: string, stepId: string, offset: -1 | 1) => void;
+  /** Ticks every step on a task at once. */
+  completeAllSteps: (taskId: string) => void;
   /** Appends a user-created milestone to the active target's roadmap. */
   addMilestone: (input: AddMilestoneInput) => string;
   /** Reorders the active roadmap. Unknown ids are ignored; omitted tasks keep their order at the end. */
@@ -255,6 +301,16 @@ interface AppState extends PersistedAppState {
   recordCheckIn: () => void;
   /** Stamps the active target so the 100% celebration only ever fires once. */
   markReadyCelebrated: () => void;
+  /**
+   * A short confirmation to show on the roadmap, set by a screen that is
+   * about to pop. Transient: never persisted, cleared once shown.
+   */
+  completionNotice: string | null;
+  /** Which task the notice is about, so its node can replay its pop. */
+  completedTaskId: string | null;
+  /** `taskId` is optional: some notices are not about one milestone. */
+  showCompletionNotice: (message: string, taskId?: string) => void;
+  clearCompletionNotice: () => void;
   addCvEntry: (entry: AddCvEntryInput) => string;
   updateCvEntry: (id: string, updates: Partial<Pick<CvEntry, 'status' | 'text' | 'suggestions'>>) => void;
   resetAll: () => void;
@@ -333,6 +389,63 @@ export const useAppStore = create<AppState>()(
           return { targets, activeTargetId, cvEntries };
         }),
 
+      updateTargetProfile: (targetId, updates) =>
+        set((state) => ({
+          targets: state.targets.map((target) => {
+            if (target.id !== targetId) {
+              return target;
+            }
+            // Rebuilt without `employer`, so clearing it removes the key
+            // rather than storing an empty string.
+            const { employer: previousEmployer, ...rest } = target;
+            const employer =
+              updates.employer === undefined ? previousEmployer : updates.employer.trim();
+
+            return {
+              ...rest,
+              ...(employer ? { employer } : {}),
+              ...(updates.level ? { level: updates.level } : {}),
+              ...(updates.experience === undefined
+                ? {}
+                : { experience: updates.experience.trim() }),
+            };
+          }),
+        })),
+
+      replaceUnfinishedRoadmap: (tasks) =>
+        set((state) => {
+          const active = state.targets.find((target) => target.id === state.activeTargetId);
+          if (!active) {
+            return {};
+          }
+
+          const kept = active.roadmap.filter((task) => task.status === 'done');
+          const keptIds = new Set(kept.map((task) => task.id));
+          const dropped = active.roadmap.filter((task) => !keptIds.has(task.id));
+          const droppedIds = new Set(dropped.map((task) => task.id));
+
+          return {
+            targets: state.targets.map((target) =>
+              target.id === active.id
+                ? withSchedule(
+                    {
+                      ...target,
+                      roadmap: [...kept, ...tasks],
+                      // Focus can only point at work that still exists.
+                      focusTaskIds: target.focusTaskIds.filter((id) => keptIds.has(id)),
+                    },
+                    Date.now(),
+                  )
+                : target,
+            ),
+            // Same rule as deleteTask: a bullet that was never earned goes
+            // with the milestone, an earned one survives.
+            cvEntries: state.cvEntries.filter(
+              (entry) => !droppedIds.has(entry.taskId) || entry.status === 'ready',
+            ),
+          };
+        }),
+
       startTask: (taskId) =>
         set((state) => ({
           targets: mapActiveRoadmap(state.targets, state.activeTargetId, (tasks) =>
@@ -387,12 +500,33 @@ export const useAppStore = create<AppState>()(
         })),
 
       deleteTask: (taskId) =>
-        set((state) => ({
+        set((state) => {
+          const active = state.targets.find((target) => target.id === state.activeTargetId);
+          const index = active?.roadmap.findIndex((task) => task.id === taskId) ?? -1;
+          const task = index >= 0 ? active?.roadmap[index] : undefined;
+          // Everything this delete is about to discard, kept for undo.
+          const removedEntries = state.cvEntries.filter(
+            (entry) => entry.taskId === taskId && entry.status !== 'ready',
+          );
+
+          return {
+          pendingUndo:
+            active && task
+              ? {
+                  kind: 'task' as const,
+                  message: 'Milestone deleted',
+                  targetId: active.id,
+                  index,
+                  task,
+                  focusTaskIds: active.focusTaskIds,
+                  cvEntries: removedEntries,
+                }
+              : state.pendingUndo,
           targets: mapActiveTarget(state.targets, state.activeTargetId, (target) =>
             withSchedule(
               {
                 ...target,
-                roadmap: target.roadmap.filter((task) => task.id !== taskId),
+                roadmap: target.roadmap.filter((entry) => entry.id !== taskId),
                 focusTaskIds: target.focusTaskIds.filter((id) => id !== taskId),
               },
               Date.now(),
@@ -401,7 +535,8 @@ export const useAppStore = create<AppState>()(
           // Drop not-yet-earned entries for this task (pending/failed); a
           // 'ready' entry is an earned CV line and survives.
           cvEntries: state.cvEntries.filter((entry) => entry.taskId !== taskId || entry.status === 'ready'),
-        })),
+          };
+        }),
 
       addMilestone: (input) => {
         const id = createId();
@@ -533,12 +668,98 @@ export const useAppStore = create<AppState>()(
           })),
         })),
 
+      completionNotice: null,
+
+      completedTaskId: null,
+
+      showCompletionNotice: (message, taskId) =>
+        set({ completionNotice: message, completedTaskId: taskId ?? null }),
+
+      clearCompletionNotice: () => set({ completionNotice: null, completedTaskId: null }),
+
       markReadyCelebrated: () =>
         set((state) => ({
           targets: mapActiveTarget(state.targets, state.activeTargetId, (target) =>
             target.readyCelebratedAt
               ? target
               : { ...target, readyCelebratedAt: new Date().toISOString() },
+          ),
+        })),
+
+      pendingUndo: null,
+
+      clearPendingUndo: () => set({ pendingUndo: null }),
+
+      setMilestoneSort: (sort) =>
+        set((state) => ({
+          targets: mapActiveTarget(state.targets, state.activeTargetId, (target) => ({
+            ...target,
+            milestoneSort: sort,
+          })),
+        })),
+
+      deleteCvEntry: (id) =>
+        set((state) => {
+          const index = state.cvEntries.findIndex((entry) => entry.id === id);
+          const entry = index >= 0 ? state.cvEntries[index] : undefined;
+          if (!entry) {
+            return {};
+          }
+          return {
+            cvEntries: state.cvEntries.filter((candidate) => candidate.id !== id),
+            pendingUndo: { kind: 'cvEntry', message: 'CV bullet deleted', index, entry },
+          };
+        }),
+
+      undoDelete: () =>
+        set((state) => {
+          const undo = state.pendingUndo;
+          if (!undo) {
+            return {};
+          }
+
+          if (undo.kind === 'cvEntry') {
+            const cvEntries = [...state.cvEntries];
+            cvEntries.splice(Math.min(undo.index, cvEntries.length), 0, undo.entry);
+            return { cvEntries, pendingUndo: null };
+          }
+
+          return {
+            targets: state.targets.map((target) => {
+              if (target.id !== undo.targetId) {
+                return target;
+              }
+              const roadmap = [...target.roadmap];
+              roadmap.splice(Math.min(undo.index, roadmap.length), 0, undo.task);
+              return withSchedule(
+                { ...target, roadmap, focusTaskIds: undo.focusTaskIds },
+                Date.now(),
+              );
+            }),
+            cvEntries: [...state.cvEntries, ...undo.cvEntries],
+            pendingUndo: null,
+          };
+        }),
+
+      moveStep: (taskId, stepId, offset) =>
+        set((state) => ({
+          targets: mapTaskSteps(state.targets, state.activeTargetId, taskId, (steps) => {
+            const index = steps.findIndex((step) => step.id === stepId);
+            const next = index + offset;
+            if (index < 0 || next < 0 || next >= steps.length) {
+              return steps;
+            }
+            const reordered = [...steps];
+            const [moved] = reordered.splice(index, 1);
+            reordered.splice(next, 0, moved as TaskStep);
+            return reordered;
+          }),
+        })),
+
+      completeAllSteps: (taskId) =>
+        set((state) => ({
+          targets: mapTaskSteps(state.targets, state.activeTargetId, taskId, (steps) =>
+            steps.map((step) => (step.done ? step : { ...step, done: true })),
           ),
         })),
 

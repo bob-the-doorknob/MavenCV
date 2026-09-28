@@ -19,6 +19,16 @@ interface StatusNodeProps {
   size?: number;
   /** Matches the surface the node sits on, so the path line is masked. */
   backgroundColor?: string;
+  /**
+   * Set false where completion is confirmed elsewhere — two haptics firing on
+   * the same action read as one muddy buzz. The pop still plays.
+   */
+  haptics?: boolean;
+  /**
+   * Changing this replays the pop. Used when the status changed on a screen
+   * the user could not see, so the animation lands when they arrive.
+   */
+  pulseKey?: string | undefined;
 }
 
 const statusLabels: Readonly<Record<TaskStatus, string>> = {
@@ -27,26 +37,37 @@ const statusLabels: Readonly<Record<TaskStatus, string>> = {
   done: 'Done',
 };
 
-export function StatusNode({ status, size = 22, backgroundColor }: StatusNodeProps) {
+export function StatusNode({
+  status,
+  size = 22,
+  backgroundColor,
+  haptics = true,
+  pulseKey,
+}: StatusNodeProps) {
   const theme = useTheme();
   const styles = useMemo(() => createStyles(theme), [theme]);
   const reducedMotion = useReducedMotion();
   const scale = useSharedValue(1);
   const previousStatus = useRef(status);
+  const previousPulse = useRef(pulseKey);
 
   useEffect(() => {
     const justCompleted = status === 'done' && previousStatus.current !== 'done';
+    const pulsed = pulseKey !== undefined && pulseKey !== previousPulse.current;
     previousStatus.current = status;
-    if (!justCompleted) return;
+    previousPulse.current = pulseKey;
+    if (!justCompleted && !pulsed) return;
 
-    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    if (haptics) {
+      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    }
     if (reducedMotion) return;
     scale.value = withSequence(
       withTiming(0.8, { duration: 90 }),
       withTiming(1.1, { duration: 150 }),
       withTiming(1, { duration: 120 }),
     );
-  }, [reducedMotion, scale, status]);
+  }, [haptics, pulseKey, reducedMotion, scale, status]);
 
   const popStyle = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
   const shape = { width: size, height: size, borderRadius: size / 2 };

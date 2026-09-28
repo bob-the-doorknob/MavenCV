@@ -54,9 +54,14 @@ export interface Target {
   schedulePace?: SchedulePace;
   /** Set the first time this target hit 100%, so the celebration fires once. */
   readyCelebratedAt?: string;
+  /** View preference, remembered per target. Defaults to 'roadmap'. */
+  milestoneSort?: MilestoneSort;
 }
 
 export type SchedulePace = 'comfortable' | 'ambitious';
+
+/** How the milestone list is ordered on screen. Never changes stored order. */
+export type MilestoneSort = 'roadmap' | 'priority' | 'dueDate';
 
 export type CvEntryStatus = 'pending' | 'ready' | 'failed';
 
