@@ -181,6 +181,132 @@ describe('deleteTask', () => {
   });
 });
 
+describe('updateTargetProfile', () => {
+  it('updates level, employer and experience without touching the roadmap', () => {
+    const { addTarget, updateTargetProfile } = useAppStore.getState();
+    const id = addTarget({ ...baseTargetInput, roadmap: [task()] });
+
+    updateTargetProfile(id, {
+      level: 'entry-level',
+      employer: '  Example Corp  ',
+      experience: '  Shipped 2 apps.  ',
+    });
+
+    const updated = useAppStore.getState().targets[0];
+    expect(updated).toMatchObject({
+      level: 'entry-level',
+      employer: 'Example Corp',
+      experience: 'Shipped 2 apps.',
+    });
+    expect(updated?.roadmap).toHaveLength(1);
+    expect(updated?.roadmap[0]?.id).toBe('task-1');
+  });
+
+  it('drops the employer when it is cleared', () => {
+    const { addTarget, updateTargetProfile } = useAppStore.getState();
+    const id = addTarget({ ...baseTargetInput, employer: 'Example Corp', roadmap: [] });
+
+    updateTargetProfile(id, { employer: '   ' });
+
+    expect(useAppStore.getState().targets[0]).not.toHaveProperty('employer');
+  });
+
+  it('leaves fields that were not passed alone', () => {
+    const { addTarget, updateTargetProfile } = useAppStore.getState();
+    const id = addTarget({ ...baseTargetInput, employer: 'Example Corp', roadmap: [] });
+
+    updateTargetProfile(id, { level: 'entry-level' });
+
+    expect(useAppStore.getState().targets[0]).toMatchObject({
+      employer: 'Example Corp',
+      experience: baseTargetInput.experience,
+      level: 'entry-level',
+    });
+  });
+
+  it('ignores an unknown target', () => {
+    const { addTarget, updateTargetProfile } = useAppStore.getState();
+    addTarget({ ...baseTargetInput, roadmap: [] });
+
+    updateTargetProfile('ghost', { level: 'entry-level' });
+
+    expect(useAppStore.getState().targets[0]?.level).toBe('internship');
+  });
+});
+
+describe('replaceUnfinishedRoadmap', () => {
+  const seed = (): void => {
+    useAppStore.getState().addTarget({
+      ...baseTargetInput,
+      roadmap: [
+        task({ id: 'done-1', status: 'done' }),
+        task({ id: 'open-1', status: 'in_progress' }),
+        task({ id: 'open-2' }),
+      ],
+    });
+  };
+
+  it('keeps finished milestones and appends the new ones', () => {
+    seed();
+
+    useAppStore.getState().replaceUnfinishedRoadmap([task({ id: 'fresh-1' }), task({ id: 'fresh-2' })]);
+
+    expect(useAppStore.getState().targets[0]?.roadmap.map((entry) => entry.id)).toEqual([
+      'done-1',
+      'fresh-1',
+      'fresh-2',
+    ]);
+  });
+
+  it('keeps earned bullets but drops ones that were never written', () => {
+    const { addTarget, completeTask, updateCvEntry, replaceUnfinishedRoadmap } =
+      useAppStore.getState();
+    addTarget({ ...baseTargetInput, roadmap: [task({ id: 'done-1' }), task({ id: 'open-1' })] });
+
+    completeTask('done-1', 'Shipped it.');
+    const earned = useAppStore.getState().cvEntries[0]?.id as string;
+    updateCvEntry(earned, { status: 'ready', text: 'Built 1 thing.' });
+    // A pending bullet against a milestone that is about to be replaced.
+    useAppStore.getState().addCvEntry({ targetId: useAppStore.getState().targets[0]?.id as string, taskId: 'open-1', status: 'pending', text: '' });
+
+    replaceUnfinishedRoadmap([task({ id: 'fresh-1' })]);
+
+    const entries = useAppStore.getState().cvEntries;
+    expect(entries).toHaveLength(1);
+    expect(entries[0]?.id).toBe(earned);
+  });
+
+  it('drops focus on milestones that no longer exist', () => {
+    seed();
+    useAppStore.getState().setFocusTasks(['open-1', 'open-2']);
+
+    useAppStore.getState().replaceUnfinishedRoadmap([task({ id: 'fresh-1' })]);
+
+    expect(useAppStore.getState().targets[0]?.focusTaskIds).toEqual([]);
+  });
+
+  it('does nothing when there is no active target', () => {
+    useAppStore.getState().replaceUnfinishedRoadmap([task({ id: 'fresh-1' })]);
+
+    expect(useAppStore.getState().targets).toEqual([]);
+  });
+
+  it('leaves other targets untouched', () => {
+    const { addTarget, setActiveTarget, replaceUnfinishedRoadmap } = useAppStore.getState();
+    const first = addTarget({ ...baseTargetInput, roadmap: [task({ id: 'a' })] });
+    const second = addTarget({ ...baseTargetInput, roadmap: [task({ id: 'b' })] });
+    setActiveTarget(second);
+
+    replaceUnfinishedRoadmap([task({ id: 'fresh-1' })]);
+
+    const targets = useAppStore.getState().targets;
+    expect(targets.find((entry) => entry.id === first)?.roadmap.map((entry) => entry.id)).toEqual(['a']);
+    expect(targets.find((entry) => entry.id === second)?.roadmap.map((entry) => entry.id)).toEqual([
+      'fresh-1',
+    ]);
+  });
+});
+
 describe('removeTarget', () => {
   it('deletes the removed target — and, since the user explicitly removed it, its CV entries too', () => {
     const { addTarget, completeTask, removeTarget } = useAppStore.getState();
@@ -231,7 +357,7 @@ describe('migrate', () => {
       cvEntries: [fullCvEntry({ status: 'ready', text: 'Built 1 thing.', suggestions: ['Add a metric.'] })],
     };
 
-    expect(migrate(valid)).toEqual(valid);
+    expect(migrate(valid)).toEqual({ ...valid, onboardingDraft: null });
   });
 
   it('keeps an unrecognized extra field instead of resetting', () => {
@@ -243,7 +369,7 @@ describe('migrate', () => {
       appBuild: '0.1.0',
     };
 
-    expect(migrate(withExtra)).toEqual(withExtra);
+    expect(migrate(withExtra)).toEqual({ ...withExtra, onboardingDraft: null });
     expect(warnSpy).not.toHaveBeenCalled();
 
     warnSpy.mockRestore();
@@ -258,7 +384,7 @@ describe('migrate', () => {
       cvEntries: [fullCvEntry()],
     };
 
-    expect(migrate(missingOptionals)).toEqual(missingOptionals);
+    expect(migrate(missingOptionals)).toEqual({ ...missingOptionals, onboardingDraft: null });
     expect(warnSpy).not.toHaveBeenCalled();
 
     warnSpy.mockRestore();
@@ -282,8 +408,9 @@ describe('migrate', () => {
   it('resets silently (no warning) when nothing has been persisted yet', () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
-    expect(migrate(undefined)).toEqual({ targets: [], activeTargetId: null, cvEntries: [] });
-    expect(migrate(null)).toEqual({ targets: [], activeTargetId: null, cvEntries: [] });
+    const empty = { targets: [], activeTargetId: null, cvEntries: [], onboardingDraft: null };
+    expect(migrate(undefined)).toEqual(empty);
+    expect(migrate(null)).toEqual(empty);
     expect(warnSpy).not.toHaveBeenCalled();
 
     warnSpy.mockRestore();
@@ -353,7 +480,7 @@ describe('migrate', () => {
       cvEntries: [],
     };
 
-    expect(migrate(current)).toEqual(current);
+    expect(migrate(current)).toEqual({ ...current, onboardingDraft: null });
   });
 
   it('resets when steps are present but wrong-typed', () => {
@@ -718,5 +845,248 @@ describe('check-ins', () => {
 
   it('is never due when there is no active target', () => {
     expect(selectIsCheckInDue(useAppStore.getState(), Date.parse('2026-06-01T00:00:00.000Z'))).toBe(false);
+  });
+});
+
+describe('undoDelete', () => {
+  it('puts a deleted milestone back where it was', () => {
+    const { addTarget, deleteTask, undoDelete } = useAppStore.getState();
+    addTarget({
+      ...baseTargetInput,
+      roadmap: [task({ id: 'a' }), task({ id: 'b' }), task({ id: 'c' })],
+    });
+
+    deleteTask('b');
+    expect(useAppStore.getState().targets[0]?.roadmap.map((entry) => entry.id)).toEqual(['a', 'c']);
+
+    undoDelete();
+
+    expect(useAppStore.getState().targets[0]?.roadmap.map((entry) => entry.id)).toEqual([
+      'a',
+      'b',
+      'c',
+    ]);
+    expect(useAppStore.getState().pendingUndo).toBeNull();
+  });
+
+  it('restores the bullets a milestone delete discarded', () => {
+    const { addTarget, completeTask, deleteTask, undoDelete } = useAppStore.getState();
+    addTarget({ ...baseTargetInput, roadmap: [task({ id: 'a' })] });
+    completeTask('a', 'notes');
+    expect(useAppStore.getState().cvEntries).toHaveLength(1);
+
+    deleteTask('a');
+    expect(useAppStore.getState().cvEntries).toHaveLength(0);
+
+    undoDelete();
+
+    expect(useAppStore.getState().cvEntries).toHaveLength(1);
+  });
+
+  it('restores focus that the delete dropped', () => {
+    const { addTarget, setFocusTasks, deleteTask, undoDelete } = useAppStore.getState();
+    addTarget({ ...baseTargetInput, roadmap: [task({ id: 'a' }), task({ id: 'b' })] });
+    setFocusTasks(['a', 'b']);
+
+    deleteTask('a');
+    expect(useAppStore.getState().targets[0]?.focusTaskIds).toEqual(['b']);
+
+    undoDelete();
+
+    expect(useAppStore.getState().targets[0]?.focusTaskIds).toEqual(['a', 'b']);
+  });
+
+  it('puts a deleted CV bullet back at its old position', () => {
+    const { addTarget, addCvEntry, deleteCvEntry, undoDelete } = useAppStore.getState();
+    const targetId = addTarget({ ...baseTargetInput, roadmap: [task()] });
+    addCvEntry({ targetId, taskId: 'task-1', status: 'ready', text: 'First.' });
+    const second = addCvEntry({ targetId, taskId: 'task-1', status: 'ready', text: 'Second.' });
+    addCvEntry({ targetId, taskId: 'task-1', status: 'ready', text: 'Third.' });
+
+    deleteCvEntry(second);
+    expect(useAppStore.getState().cvEntries.map((entry) => entry.text)).toEqual([
+      'First.',
+      'Third.',
+    ]);
+
+    undoDelete();
+
+    expect(useAppStore.getState().cvEntries.map((entry) => entry.text)).toEqual([
+      'First.',
+      'Second.',
+      'Third.',
+    ]);
+  });
+
+  it('does nothing when there is nothing to undo', () => {
+    const { addTarget, undoDelete } = useAppStore.getState();
+    addTarget({ ...baseTargetInput, roadmap: [task()] });
+
+    undoDelete();
+
+    expect(useAppStore.getState().targets[0]?.roadmap).toHaveLength(1);
+  });
+
+  it('is dropped once cleared, so a stale banner cannot resurrect anything', () => {
+    const { addTarget, deleteTask, clearPendingUndo, undoDelete } = useAppStore.getState();
+    addTarget({ ...baseTargetInput, roadmap: [task({ id: 'a' })] });
+
+    deleteTask('a');
+    clearPendingUndo();
+    undoDelete();
+
+    expect(useAppStore.getState().targets[0]?.roadmap).toHaveLength(0);
+  });
+});
+
+describe('step ordering', () => {
+  const stepsOf = (): string[] =>
+    (useAppStore.getState().targets[0]?.roadmap[0]?.steps ?? []).map((entry) => entry.id);
+
+  const seed = (): void => {
+    useAppStore.getState().addTarget({
+      ...baseTargetInput,
+      roadmap: [
+        task({ steps: [step({ id: '1' }), step({ id: '2' }), step({ id: '3' })] }),
+      ],
+    });
+  };
+
+  it('moves a step up and down', () => {
+    seed();
+
+    useAppStore.getState().moveStep('task-1', '3', -1);
+    expect(stepsOf()).toEqual(['1', '3', '2']);
+
+    useAppStore.getState().moveStep('task-1', '3', 1);
+    expect(stepsOf()).toEqual(['1', '2', '3']);
+  });
+
+  it('ignores a move past either end', () => {
+    seed();
+
+    useAppStore.getState().moveStep('task-1', '1', -1);
+    useAppStore.getState().moveStep('task-1', '3', 1);
+
+    expect(stepsOf()).toEqual(['1', '2', '3']);
+  });
+
+  it('ignores an unknown step', () => {
+    seed();
+
+    useAppStore.getState().moveStep('task-1', 'ghost', 1);
+
+    expect(stepsOf()).toEqual(['1', '2', '3']);
+  });
+
+  it('marks every step done at once, leaving finished ones alone', () => {
+    useAppStore.getState().addTarget({
+      ...baseTargetInput,
+      roadmap: [task({ steps: [step({ id: '1', done: true }), step({ id: '2' })] })],
+    });
+
+    useAppStore.getState().completeAllSteps('task-1');
+
+    expect(
+      (useAppStore.getState().targets[0]?.roadmap[0]?.steps ?? []).every((entry) => entry.done),
+    ).toBe(true);
+  });
+
+  it('does not change the task status or score', () => {
+    seed();
+    const before = calculateReadiness(useAppStore.getState().targets[0]?.roadmap ?? []);
+
+    useAppStore.getState().completeAllSteps('task-1');
+
+    expect(useAppStore.getState().targets[0]?.roadmap[0]?.status).toBe('not_started');
+    expect(calculateReadiness(useAppStore.getState().targets[0]?.roadmap ?? [])).toBe(before);
+  });
+});
+
+describe('setMilestoneSort', () => {
+  it('remembers the choice on the active target', () => {
+    const { addTarget, setMilestoneSort } = useAppStore.getState();
+    addTarget({ ...baseTargetInput, roadmap: [task()] });
+
+    setMilestoneSort('priority');
+
+    expect(useAppStore.getState().targets[0]?.milestoneSort).toBe('priority');
+  });
+
+  it('keeps it per target', () => {
+    const { addTarget, setActiveTarget, setMilestoneSort } = useAppStore.getState();
+    const first = addTarget({ ...baseTargetInput, roadmap: [] });
+    setMilestoneSort('priority');
+    const second = addTarget({ ...baseTargetInput, roadmap: [] });
+    setMilestoneSort('dueDate');
+
+    const targets = useAppStore.getState().targets;
+    expect(targets.find((entry) => entry.id === first)?.milestoneSort).toBe('priority');
+    expect(targets.find((entry) => entry.id === second)?.milestoneSort).toBe('dueDate');
+    setActiveTarget(first);
+  });
+});
+
+describe('onboarding draft', () => {
+  const draft = {
+    step: 'aboutYou' as const,
+    roleId: 'software-engineer',
+    customTitle: '',
+    level: 'internship' as const,
+    employer: 'Example Corp',
+    experience: 'Two class projects.',
+    targetDate: null,
+    savedAt: '2026-09-23T00:00:00.000Z',
+  };
+
+  it('keeps the draft so a quit mid-flow loses nothing', () => {
+    useAppStore.getState().saveOnboardingDraft(draft);
+
+    expect(useAppStore.getState().onboardingDraft).toEqual(draft);
+  });
+
+  it('survives a rehydration', () => {
+    expect(migrate({ targets: [], activeTargetId: null, cvEntries: [], onboardingDraft: draft }))
+      .toMatchObject({ onboardingDraft: draft });
+  });
+
+  it('is cleared once onboarding finishes', () => {
+    const { saveOnboardingDraft, clearOnboardingDraft } = useAppStore.getState();
+    saveOnboardingDraft(draft);
+
+    clearOnboardingDraft();
+
+    expect(useAppStore.getState().onboardingDraft).toBeNull();
+  });
+});
+
+describe('step completion stamps', () => {
+  const firstStep = () => useAppStore.getState().targets[0]?.roadmap[0]?.steps[0];
+
+  beforeEach(() => {
+    useAppStore.getState().addTarget({
+      ...baseTargetInput,
+      roadmap: [task({ steps: [step({ id: '1' })] })],
+    });
+  });
+
+  it('stamps a step when it is ticked', () => {
+    useAppStore.getState().toggleStep('task-1', '1');
+
+    expect(firstStep()).toMatchObject({ done: true, completedAt: expect.any(String) });
+  });
+
+  it('drops the stamp when a step is un-ticked, so the streak stays honest', () => {
+    useAppStore.getState().toggleStep('task-1', '1');
+    useAppStore.getState().toggleStep('task-1', '1');
+
+    expect(firstStep()?.done).toBe(false);
+    expect(firstStep()).not.toHaveProperty('completedAt');
+  });
+
+  it('stamps every step that mark-all-done actually changes', () => {
+    useAppStore.getState().completeAllSteps('task-1');
+
+    expect(firstStep()).toMatchObject({ done: true, completedAt: expect.any(String) });
   });
 });

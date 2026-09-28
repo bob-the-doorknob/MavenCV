@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
@@ -37,8 +37,6 @@ const STATUS_LABELS: Readonly<Record<TaskStatus, string>> = {
   done: 'Done',
 };
 
-const BANNER_DURATION_MS = 3_000;
-
 const ESTIMATE_CHOICES = [1, 2, 4, 6, 8] as const;
 
 export function TaskDetailScreen() {
@@ -53,9 +51,7 @@ export function TaskDetailScreen() {
   const [actionsVisible, setActionsVisible] = useState(false);
   const [editVisible, setEditVisible] = useState(false);
   const [markDoneVisible, setMarkDoneVisible] = useState(false);
-  const [bannerVisible, setBannerVisible] = useState(false);
   const [newStep, setNewStep] = useState('');
-  const bannerTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const roadmap = target?.roadmap ?? [];
   const index = roadmap.findIndex((candidate) => candidate.id === params.taskId);
@@ -68,15 +64,6 @@ export function TaskDetailScreen() {
     }
   }, [task, navigation]);
 
-  useEffect(
-    () => () => {
-      if (bannerTimeout.current) {
-        clearTimeout(bannerTimeout.current);
-      }
-    },
-    [],
-  );
-
   if (!task) {
     return <View style={styles.screen} />;
   }
@@ -86,12 +73,16 @@ export function TaskDetailScreen() {
   const isFocus = target?.focusTaskIds.includes(task.id) ?? false;
   const cvEntry = [...cvEntries].reverse().find((entry) => entry.taskId === task.id);
 
-  const showBanner = (): void => {
-    setBannerVisible(true);
-    if (bannerTimeout.current) {
-      clearTimeout(bannerTimeout.current);
+  /**
+   * The score arc and the milestone node both live on the roadmap, so the
+   * completion is confirmed there — otherwise they animate behind this screen
+   * and the user never sees them. The sheet has already closed by now.
+   */
+  const confirmCompletion = (): void => {
+    useAppStore.getState().showCompletionNotice('Milestone done. CV bullet on its way.', task.id);
+    if (navigation.canGoBack()) {
+      navigation.goBack();
     }
-    bannerTimeout.current = setTimeout(() => setBannerVisible(false), BANNER_DURATION_MS);
   };
 
   const confirmDelete = (): void => {
@@ -228,14 +219,33 @@ export function TaskDetailScreen() {
             {task.steps.map((step, stepIndex) => (
               <StepRow
                 key={step.id}
+                canMoveDown={stepIndex < task.steps.length - 1}
+                canMoveUp={stepIndex > 0}
                 done={step.done}
                 isFirst={stepIndex === 0}
                 onLongPress={() => confirmRemoveStep(step.id, step.title)}
+                onMoveDown={() => useAppStore.getState().moveStep(task.id, step.id, 1)}
+                onMoveUp={() => useAppStore.getState().moveStep(task.id, step.id, -1)}
                 onPress={() => useAppStore.getState().toggleStep(task.id, step.id)}
                 onRemove={() => confirmRemoveStep(step.id, step.title)}
                 title={step.title}
               />
             ))}
+            {task.steps.length === 0 ? (
+              <Text style={styles.stepsEmpty}>
+                No steps yet. Break this milestone into a few small moves if it helps — they never
+                change your score.
+              </Text>
+            ) : null}
+            {steps.total > 0 && steps.done < steps.total ? (
+              <View style={styles.markAllRow}>
+                <Button
+                  label="Mark all steps done"
+                  onPress={() => useAppStore.getState().completeAllSteps(task.id)}
+                  variant="secondary"
+                />
+              </View>
+            ) : null}
             <View style={[styles.addStepRow, task.steps.length > 0 && styles.addStepRowDivided]}>
               <TextField
                 accessibilityLabel="Add a step"
@@ -261,12 +271,6 @@ export function TaskDetailScreen() {
 
         {task.status === 'done' ? <DoneSection notes={task.notes} entry={cvEntry} /> : null}
       </ScrollView>
-
-      {bannerVisible ? (
-        <View style={styles.banner}>
-          <Text style={styles.bannerText}>CV bullet on its way</Text>
-        </View>
-      ) : null}
 
       <View style={[styles.actionBar, { paddingBottom: insets.bottom + spacing.md }]}>
         {task.status === 'not_started' ? (
@@ -336,7 +340,7 @@ export function TaskDetailScreen() {
 
       <MarkDoneSheet
         onClose={() => setMarkDoneVisible(false)}
-        onCompleted={showBanner}
+        onCompleted={confirmCompletion}
         taskId={task.id}
         visible={markDoneVisible}
       />
@@ -371,12 +375,27 @@ interface StepRowProps {
   title: string;
   done: boolean;
   isFirst: boolean;
+  canMoveUp: boolean;
+  canMoveDown: boolean;
   onPress: () => void;
   onLongPress: () => void;
   onRemove: () => void;
+  onMoveUp: () => void;
+  onMoveDown: () => void;
 }
 
-function StepRow({ title, done, isFirst, onPress, onLongPress, onRemove }: StepRowProps) {
+function StepRow({
+  title,
+  done,
+  isFirst,
+  canMoveUp,
+  canMoveDown,
+  onPress,
+  onLongPress,
+  onRemove,
+  onMoveUp,
+  onMoveDown,
+}: StepRowProps) {
   const theme = useTheme();
   const styles = useMemo(() => createStyles(theme), [theme]);
   const press = usePressScale();
@@ -402,6 +421,18 @@ function StepRow({ title, done, isFirst, onPress, onLongPress, onRemove }: StepR
           />
           <Text style={[styles.stepTitle, done && styles.stepTitleDone]}>{title}</Text>
         </Pressable>
+        <StepMoveButton
+          direction="up"
+          disabled={!canMoveUp}
+          onPress={onMoveUp}
+          title={title}
+        />
+        <StepMoveButton
+          direction="down"
+          disabled={!canMoveDown}
+          onPress={onMoveDown}
+          title={title}
+        />
         <Pressable
           accessibilityLabel={`Remove step ${title}`}
           accessibilityRole="button"
@@ -420,6 +451,43 @@ function StepRow({ title, done, isFirst, onPress, onLongPress, onRemove }: StepR
         </Pressable>
       </View>
     </Animated.View>
+  );
+}
+
+function StepMoveButton({
+  direction,
+  disabled,
+  title,
+  onPress,
+}: {
+  direction: 'up' | 'down';
+  disabled: boolean;
+  title: string;
+  onPress: () => void;
+}) {
+  const theme = useTheme();
+  const styles = useMemo(() => createStyles(theme), [theme]);
+
+  return (
+    <Pressable
+      accessibilityLabel={`Move ${title} ${direction}`}
+      accessibilityRole="button"
+      accessibilityState={{ disabled }}
+      disabled={disabled}
+      hitSlop={6}
+      onPress={onPress}
+      style={[styles.stepMove, disabled && styles.stepMoveDisabled]}
+    >
+      <Svg fill="none" height={16} viewBox="0 0 24 24" width={16}>
+        <Path
+          d={direction === 'up' ? 'M6 15 L12 9 L18 15' : 'M6 9 L12 15 L18 9'}
+          stroke={theme.colors.textMuted}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          strokeWidth={2}
+        />
+      </Svg>
+    </Pressable>
   );
 }
 
@@ -626,11 +694,30 @@ const createStyles = (theme: Theme) =>
     stepTitleDone: {
       color: theme.colors.textSecondary,
     },
+    markAllRow: {
+      paddingTop: spacing.sm,
+    },
+    stepMove: {
+      alignItems: 'center',
+      height: minTouchTarget,
+      justifyContent: 'center',
+      width: 28,
+    },
+    stepMoveDisabled: {
+      opacity: 0.3,
+    },
     stepRemove: {
       alignItems: 'center',
       height: minTouchTarget,
       justifyContent: 'center',
       width: 32,
+    },
+    stepsEmpty: {
+      color: theme.colors.textSecondary,
+      fontFamily: typography.caption.fontFamily,
+      fontSize: typography.caption.fontSize,
+      lineHeight: typography.caption.lineHeight,
+      paddingBottom: spacing.sm,
     },
     addStepRow: {
       gap: spacing.sm,
@@ -640,21 +727,6 @@ const createStyles = (theme: Theme) =>
       borderTopWidth: 1,
       marginTop: spacing.sm,
       paddingTop: spacing.md,
-    },
-    banner: {
-      alignSelf: 'center',
-      backgroundColor: theme.colors.textPrimary,
-      borderRadius: radii.pill,
-      bottom: 150,
-      paddingHorizontal: spacing.lg,
-      paddingVertical: spacing.sm,
-      position: 'absolute',
-    },
-    bannerText: {
-      color: theme.colors.background,
-      fontFamily: typography.caption.fontFamily,
-      fontSize: typography.caption.fontSize,
-      fontWeight: '600',
     },
     actionBar: {
       backgroundColor: theme.colors.surface,

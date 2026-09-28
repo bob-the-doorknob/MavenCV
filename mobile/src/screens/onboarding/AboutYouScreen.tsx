@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ActivityIndicator,
   BackHandler,
   KeyboardAvoidingView,
   Platform,
@@ -14,7 +13,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated from 'react-native-reanimated';
 import Svg, { Path } from 'react-native-svg';
 
-import { Button, Chip, ProgressBar, SectionLabel, TextArea, TextField } from '../../components/ui';
+import { Button, Chip, ProgressBar, SectionLabel, ShimmerBar, TextArea, TextField } from '../../components/ui';
 import { usePressScale } from '../../components/ui/usePressScale';
 import type { Level } from '../../data/roles';
 import { levelLabels } from '../../data/roles';
@@ -265,8 +264,10 @@ export function AboutYouScreen({
                   variant="secondary"
                 />
                 {isExtracting ? (
-                  <View style={styles.extractingRow}>
-                    <ActivityIndicator color={theme.colors.accent} />
+                  <View style={styles.extractingBlock}>
+                    <ShimmerBar width="100%" />
+                    <ShimmerBar delayMs={120} width="88%" />
+                    <ShimmerBar delayMs={240} width="62%" />
                     <Text style={styles.extractingText}>
                       {pickedFileName ? `${pickedFileName} — ` : ''}Reading your CV…
                     </Text>
@@ -429,10 +430,9 @@ const createStyles = (theme: Theme) =>
     uploadContainer: {
       gap: spacing.sm,
     },
-    extractingRow: {
-      alignItems: 'center',
-      flexDirection: 'row',
+    extractingBlock: {
       gap: spacing.sm,
+      paddingTop: spacing.xs,
     },
     extractingText: {
       color: theme.colors.textSecondary,

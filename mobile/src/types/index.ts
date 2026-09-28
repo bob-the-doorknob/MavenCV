@@ -8,6 +8,20 @@ export interface TaskStep {
   id: string;
   title: string;
   done: boolean;
+  /** When it was ticked. Absent on steps finished before streaks existed. */
+  completedAt?: string;
+}
+
+/** What the user was part-way through when they last closed onboarding. */
+export interface OnboardingDraft {
+  step: 'role' | 'aboutYou' | 'readyBy';
+  roleId: string | null;
+  customTitle: string;
+  level: Level | null;
+  employer: string;
+  experience: string;
+  targetDate: string | null;
+  savedAt: string;
 }
 
 export interface RoadmapTask {
@@ -54,9 +68,14 @@ export interface Target {
   schedulePace?: SchedulePace;
   /** Set the first time this target hit 100%, so the celebration fires once. */
   readyCelebratedAt?: string;
+  /** View preference, remembered per target. Defaults to 'roadmap'. */
+  milestoneSort?: MilestoneSort;
 }
 
 export type SchedulePace = 'comfortable' | 'ambitious';
+
+/** How the milestone list is ordered on screen. Never changes stored order. */
+export type MilestoneSort = 'roadmap' | 'priority' | 'dueDate';
 
 export type CvEntryStatus = 'pending' | 'ready' | 'failed';
 

@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -11,10 +11,15 @@ import { Card, SectionLabel } from '../../components/ui';
 import { usePressScale } from '../../components/ui/usePressScale';
 import { resolveRoleTitle } from '../../data/roles';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
+import { checkProEntitlement } from '../../services/proStatus';
 import { restorePurchases } from '../../services/revenueCat';
+import { EditTargetSheet } from '../roadmap/EditTargetSheet';
+import { ProUpsellSheet } from '../cv/ProUpsellSheet';
 import { useActiveTarget, useAppStore } from '../../store/useAppStore';
 import { minTouchTarget, spacing, typography, type Theme } from '../../theme/tokens';
 import { useTheme } from '../../theme/useTheme';
+import { formatExportText } from '../../utils/exportText';
+import { formatMonthYear } from '../../utils/targetDate';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 
@@ -30,6 +35,73 @@ export function SettingsScreen() {
   const styles = useMemo(() => createStyles(theme), [theme]);
   const target = useActiveTarget();
   const [restoring, setRestoring] = useState(false);
+  const [editVisible, setEditVisible] = useState(false);
+  const [upsellVisible, setUpsellVisible] = useState(false);
+  const [regenerating, setRegenerating] = useState(false);
+  const targetCount = useAppStore((state) => state.targets.length);
+
+  /** Same gate and warning as the roadmap's switcher. */
+  const startRegenerate = async (): Promise<void> => {
+    if (!target || regenerating) return;
+    setRegenerating(true);
+    try {
+      if (!(await checkProEntitlement())) {
+        setUpsellVisible(true);
+        return;
+      }
+      const doneCount = target.roadmap.filter((entry) => entry.status === 'done').length;
+      const openCount = target.roadmap.length - doneCount;
+      Alert.alert(
+        'Regenerate this roadmap?',
+        `${doneCount} finished ${doneCount === 1 ? 'milestone' : 'milestones'} and the CV bullets they earned are kept. ${openCount} unfinished ${openCount === 1 ? 'milestone is' : 'milestones are'} replaced with a fresh set built from your current experience.`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Regenerate', onPress: () => navigation.navigate('RegenerateRoadmap') },
+        ],
+      );
+    } catch (error) {
+      Alert.alert('Unable to regenerate', error instanceof Error ? error.message : 'Please try again.');
+    } finally {
+      setRegenerating(false);
+    }
+  };
+
+  const confirmDeleteTarget = (): void => {
+    if (!target) return;
+    const isLast = targetCount === 1;
+    Alert.alert(
+      'Delete this target?',
+      isLast
+        ? "This deletes this target, its roadmap and its CV bullets. You'll start again from setup."
+        : 'This deletes this target, its roadmap and its CV bullets. Your other targets are untouched.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: () => {
+            useAppStore.getState().removeTarget(target.id);
+            if (navigation.canGoBack()) navigation.goBack();
+          },
+        },
+      ],
+    );
+  };
+
+  /** Plain text, shared through the OS sheet — email, notes, wherever. */
+  const exportEverything = async (): Promise<void> => {
+    if (!target) {
+      Alert.alert('Nothing to export', 'Create a target role first.');
+      return;
+    }
+    try {
+      await Share.share({
+        message: formatExportText(target, useAppStore.getState().cvEntries, formatMonthYear),
+      });
+    } catch {
+      Alert.alert('Export failed', 'The share sheet could not be opened. Please try again.');
+    }
+  };
 
   const restore = async (): Promise<void> => {
     if (restoring) {
@@ -79,7 +151,7 @@ export function SettingsScreen() {
         contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + spacing.xl }]}
       >
         <View style={styles.section}>
-          <SectionLabel>Target role</SectionLabel>
+          <SectionLabel>Target</SectionLabel>
           <Card>
             <SettingsRow
               isFirst
@@ -90,6 +162,25 @@ export function SettingsScreen() {
                   : 'No target role yet'
               }
               title="Change target role"
+            />
+            <SettingsRow
+              isFirst={false}
+              onPress={() => setEditVisible(true)}
+              subtitle="Level, company and experience — your roadmap stays as it is"
+              title="Edit this target"
+            />
+            <SettingsRow
+              isFirst={false}
+              onPress={() => void startRegenerate()}
+              subtitle="Rebuild unfinished milestones from your current experience"
+              title="Regenerate roadmap"
+            />
+            <SettingsRow
+              isDanger
+              isFirst={false}
+              onPress={confirmDeleteTarget}
+              subtitle="Removes this target, its roadmap and its CV bullets"
+              title="Delete this target"
             />
           </Card>
         </View>
@@ -110,8 +201,14 @@ export function SettingsScreen() {
           <SectionLabel>Data</SectionLabel>
           <Card>
             <SettingsRow
-              isDanger
               isFirst
+              onPress={() => void exportEverything()}
+              subtitle="Share your target, milestones and CV bullets as plain text"
+              title="Export everything"
+            />
+            <SettingsRow
+              isDanger
+              isFirst={false}
               onPress={confirmReset}
               subtitle="Deletes every roadmap and CV bullet on this device"
               title="Reset all data"
@@ -127,6 +224,13 @@ export function SettingsScreen() {
           </Card>
         </View>
       </ScrollView>
+
+      <EditTargetSheet onClose={() => setEditVisible(false)} target={target} visible={editVisible} />
+      <ProUpsellSheet
+        onClose={() => setUpsellVisible(false)}
+        trigger="regenerate"
+        visible={upsellVisible}
+      />
     </View>
   );
 }

@@ -2,10 +2,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 // Clipboard comes from react-native core: expo-clipboard isn't installed and
 // adding a dependency needs approval. Core's shim is deprecated but works.
 import {
+  Alert,
   Clipboard,
   Pressable,
   RefreshControl,
   ScrollView,
+  Share,
   StyleSheet,
   Text,
   View,
@@ -16,7 +18,7 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import Animated from 'react-native-reanimated';
 import Svg, { Path } from 'react-native-svg';
 
-import { Button, Card, EmptyState, StatusNode } from '../../components/ui';
+import { Button, Card, ConfirmationBanner, EmptyState, ShimmerBar, StatusNode } from '../../components/ui';
 import { usePressScale } from '../../components/ui/usePressScale';
 import { levelLabels, resolveRoleTitle } from '../../data/roles';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
@@ -30,12 +32,13 @@ import type { CvEntry, RoadmapTask } from '../../types';
 import { AddNumberSheet } from './AddNumberSheet';
 import { EditBulletSheet } from './EditBulletSheet';
 import { ProUpsellSheet } from './ProUpsellSheet';
-import { ShimmerBar } from './ShimmerBar';
 import { PrivacyControls } from '../../components/PrivacyControls';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 
 const BANNER_DURATION_MS = 2_500;
+/** Long enough to notice and reach, short enough not to linger. */
+const UNDO_DURATION_MS = 6_000;
 
 export function CvVaultScreen() {
   const theme = useTheme();
@@ -46,6 +49,7 @@ export function CvVaultScreen() {
   const allEntries = useAppStore((state) => state.cvEntries);
   const { isPro } = useProStatus();
   const queueMessage = useCvQueueStatus((state) => state.message);
+  const pendingUndo = useAppStore((state) => state.pendingUndo);
   useFocusEffect(useCallback(() => {
     setCvQueueActive(true);
     void processPendingCvEntries();
@@ -115,6 +119,43 @@ export function CvVaultScreen() {
     showBanner(`Copied ${readyCount} bullets`);
   };
 
+  /** The OS share sheet — email, notes, messages, whatever they use. */
+  const shareOne = async (text: string): Promise<void> => {
+    try {
+      await Share.share({ message: text });
+    } catch {
+      showBanner('Could not open the share sheet');
+    }
+  };
+
+  const shareAll = async (): Promise<void> => {
+    if (!isPro) {
+      setUpsellVisible(true);
+      return;
+    }
+    const text = formatBulletsForCopy(entries);
+    if (!text) {
+      showBanner('No finished bullets yet');
+      return;
+    }
+    try {
+      await Share.share({ message: text });
+    } catch {
+      showBanner('Could not open the share sheet');
+    }
+  };
+
+  const confirmDelete = (entry: CvEntry): void => {
+    Alert.alert('Delete this bullet?', 'You can undo this for a few seconds.', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Delete',
+        style: 'destructive',
+        onPress: () => useAppStore.getState().deleteCvEntry(entry.id),
+      },
+    ]);
+  };
+
   const taskFor = (taskId: string): RoadmapTask | undefined =>
     target?.roadmap.find((task) => task.id === taskId);
 
@@ -143,13 +184,19 @@ export function CvVaultScreen() {
               {entries.length === 1 ? 'bullet' : 'bullets'}
             </Text>
           </View>
-          <CopyAllButton onPress={copyAll} />
+          <View style={styles.headerActions}>
+            <CopyAllButton onPress={copyAll} />
+            <Button label="Share all" onPress={() => void shareAll()} variant="secondary" />
+          </View>
         </View>
 
         {queueMessage ? <Text accessibilityRole="alert" style={styles.subtitle}>{queueMessage}</Text> : null}
         <PrivacyControls />
         {entries.length === 0 ? (
-          <EmptyState message="Finish a task to get your first CV bullet." title="No bullets yet" />
+          <EmptyState
+            message="Finish a milestone and Maven writes your first CV bullet here."
+            title="No bullets yet"
+          />
         ) : (
           entries.map((entry) => (
             <BulletCard
@@ -159,7 +206,9 @@ export function CvVaultScreen() {
               onCopy={() => copyOne(entry.text)}
               onEdit={() => setEditEntry(entry)}
               onOpenTask={() => navigation.navigate('TaskDetail', { taskId: entry.taskId })}
+              onDelete={() => confirmDelete(entry)}
               onRetry={() => retryCvEntry(entry.id)}
+              onShare={() => void shareOne(entry.text)}
               taskTitle={taskFor(entry.taskId)?.title ?? 'a deleted milestone'}
             />
           ))
@@ -185,6 +234,14 @@ export function CvVaultScreen() {
           <Text style={styles.bannerText}>{banner}</Text>
         </View>
       ) : null}
+
+      <ConfirmationBanner
+        action={{ label: 'Undo', onPress: () => useAppStore.getState().undoDelete() }}
+        bottomOffset={insets.bottom + spacing.xxl}
+        durationMs={UNDO_DURATION_MS}
+        message={pendingUndo?.kind === 'cvEntry' ? pendingUndo.message : null}
+        onDismiss={() => useAppStore.getState().clearPendingUndo()}
+      />
 
       <EditBulletSheet entry={editEntry} onClose={() => setEditEntry(null)} visible={editEntry !== null} />
       <AddNumberSheet
@@ -230,6 +287,8 @@ interface BulletCardProps {
   onEdit: () => void;
   onAddNumber: () => void;
   onRetry: () => void;
+  onShare: () => void;
+  onDelete: () => void;
 }
 
 function BulletCard({
@@ -240,6 +299,8 @@ function BulletCard({
   onEdit,
   onAddNumber,
   onRetry,
+  onShare,
+  onDelete,
 }: BulletCardProps) {
   const theme = useTheme();
   const styles = useMemo(() => createStyles(theme), [theme]);
@@ -290,7 +351,9 @@ function BulletCard({
           ) : (
             <View style={styles.actions}>
               <CopyButton onPress={onCopy} />
+              <Button label="Share" onPress={onShare} variant="secondary" />
               <Button label="Edit" onPress={onEdit} variant="ghost" />
+              <Button label="Delete" onPress={onDelete} variant="ghost" />
             </View>
           )}
         </View>
@@ -372,6 +435,10 @@ const createStyles = (theme: Theme) =>
       justifyContent: 'space-between',
       marginBottom: spacing.sm,
     },
+    headerActions: {
+      alignItems: 'flex-end',
+      gap: spacing.sm,
+    },
     headerCopy: {
       flex: 1,
       gap: spacing.xs,
@@ -426,7 +493,8 @@ const createStyles = (theme: Theme) =>
       alignItems: 'center',
       flexDirection: 'row',
       gap: spacing.sm,
-      minHeight: 32,
+      // It navigates to the milestone, so it gets a full tap target.
+      minHeight: minTouchTarget,
     },
     taskLabel: {
       color: theme.colors.textMuted,

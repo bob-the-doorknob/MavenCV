@@ -153,3 +153,36 @@ export const scheduleStatus = (task: RoadmapTask, now: number): ScheduleStatus =
   }
   return due - now <= DUE_SOON_DAYS * MS_PER_DAY ? 'due_soon' : 'on_track';
 };
+
+export interface OverdueSummary {
+  count: number;
+  /** The earliest-dated overdue milestone — where "show me" should land. */
+  firstId: string;
+  label: string;
+}
+
+/**
+ * One calm line about milestones whose date has passed, or null when there is
+ * nothing to say. Never more than one line, however many are overdue.
+ */
+export const overdueSummary = (
+  tasks: readonly RoadmapTask[],
+  now: number,
+): OverdueSummary | null => {
+  const overdue = tasks
+    .filter((task) => scheduleStatus(task, now) === 'overdue')
+    .sort((a, b) => Date.parse(a.targetDate ?? '') - Date.parse(b.targetDate ?? ''));
+
+  const first = overdue[0];
+  if (!first) {
+    return null;
+  }
+
+  return {
+    count: overdue.length,
+    firstId: first.id,
+    label: `${overdue.length} milestone${overdue.length === 1 ? '' : 's'} past ${
+      overdue.length === 1 ? 'its' : 'their'
+    } date`,
+  };
+};

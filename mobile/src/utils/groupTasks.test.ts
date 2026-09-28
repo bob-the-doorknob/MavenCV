@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { RoadmapTask, TaskStep } from '../types';
-import { countSteps, orderRoadmap, taskMetaLine } from './groupTasks';
+import { countSteps, orderRoadmap, sortMilestones, taskMetaLine } from './groupTasks';
 
 const step = (overrides: Partial<TaskStep> = {}): TaskStep => ({
   id: 'step-1',
@@ -127,7 +127,87 @@ describe('taskMetaLine', () => {
     expect(taskMetaLine(upcoming, false)).toBe('Med · Not started');
   });
 
+  it('says Start here on a roadmap where nothing has begun', () => {
+    const upcoming = task({ status: 'not_started', priority: 2 });
+
+    expect(taskMetaLine(upcoming, true, { neverStarted: true })).toBe('Med · Start here');
+  });
+
+  it('keeps Up next once something has been started or finished', () => {
+    const upcoming = task({ status: 'not_started', priority: 2 });
+
+    expect(taskMetaLine(upcoming, true, { neverStarted: false })).toBe('Med · Up next');
+    expect(taskMetaLine(upcoming, true)).toBe('Med · Up next');
+  });
+
+  it('never says Start here on a milestone that is not up next', () => {
+    const later = task({ status: 'not_started', priority: 2 });
+
+    expect(taskMetaLine(later, false, { neverStarted: true })).toBe('Med · Not started');
+  });
+
   it('omits steps when the task has none', () => {
     expect(taskMetaLine(task({ status: 'in_progress', priority: 1 }), false)).toBe('Low · In progress');
+  });
+});
+
+describe('sortMilestones', () => {
+  const a = task({ id: 'a', priority: 1, targetDate: '2026-03-01T00:00:00.000Z' });
+  const b = task({ id: 'b', priority: 3, targetDate: '2026-01-01T00:00:00.000Z' });
+  const c = task({ id: 'c', priority: 2 });
+
+  it('leaves the roadmap order untouched', () => {
+    const tasks = [a, b, c];
+
+    expect(sortMilestones(tasks, 'roadmap')).toBe(tasks);
+  });
+
+  it('puts the highest priority first', () => {
+    expect(sortMilestones([a, b, c], 'priority').map((entry) => entry.id)).toEqual(['b', 'c', 'a']);
+  });
+
+  it('puts the earliest due date first, undated last', () => {
+    expect(sortMilestones([a, b, c], 'dueDate').map((entry) => entry.id)).toEqual(['b', 'a', 'c']);
+  });
+
+  it('sinks done milestones to the bottom of a derived view', () => {
+    const done = task({ id: 'done', priority: 3, status: 'done' });
+
+    expect(sortMilestones([done, a], 'priority').map((entry) => entry.id)).toEqual(['a', 'done']);
+    expect(sortMilestones([done, a], 'dueDate').map((entry) => entry.id)).toEqual(['a', 'done']);
+  });
+
+  it('keeps done milestones in place in roadmap order', () => {
+    const done = task({ id: 'done', status: 'done' });
+
+    expect(sortMilestones([done, a], 'roadmap').map((entry) => entry.id)).toEqual(['done', 'a']);
+  });
+
+  it('falls back to roadmap order for ties', () => {
+    const first = task({ id: 'first', priority: 2 });
+    const second = task({ id: 'second', priority: 2 });
+
+    expect(sortMilestones([first, second], 'priority').map((entry) => entry.id)).toEqual([
+      'first',
+      'second',
+    ]);
+  });
+
+  it('ignores an unparseable date rather than ranking on it', () => {
+    const broken = task({ id: 'broken', targetDate: 'not a date' });
+
+    expect(sortMilestones([broken, b], 'dueDate').map((entry) => entry.id)).toEqual(['b', 'broken']);
+  });
+
+  it('never drops or duplicates a milestone', () => {
+    const tasks = [a, b, c];
+
+    for (const sort of ['roadmap', 'priority', 'dueDate'] as const) {
+      expect([...sortMilestones(tasks, sort)].map((entry) => entry.id).sort()).toEqual([
+        'a',
+        'b',
+        'c',
+      ]);
+    }
   });
 });

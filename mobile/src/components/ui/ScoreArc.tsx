@@ -11,6 +11,7 @@ import { scheduleOnRN } from 'react-native-worklets';
 import Svg, { Path } from 'react-native-svg';
 
 import { headerColors, motion, spacing, typography, type Theme } from '../../theme/tokens';
+import { arcGeometry, STROKE_WIDTH } from './scoreArcGeometry';
 import { useTheme } from '../../theme/useTheme';
 
 const AnimatedPath = Animated.createAnimatedComponent(Path);
@@ -24,8 +25,6 @@ interface ScoreArcProps {
   /** 'onDark' for the dark header block, 'onSurface' for paper/surface. */
   variant?: 'onDark' | 'onSurface';
 }
-
-const STROKE_WIDTH = 14;
 
 export function ScoreArc({ value, label = 'Interview readiness', size = 220, variant = 'onDark' }: ScoreArcProps) {
   const theme = useTheme();
@@ -50,13 +49,14 @@ export function ScoreArc({ value, label = 'Interview readiness', size = 220, var
     [],
   );
 
-  const radius = (size - STROKE_WIDTH) / 2;
-  const centerY = radius + STROKE_WIDTH / 2;
-  const arcLength = Math.PI * radius;
-  const d = `M ${STROKE_WIDTH / 2} ${centerY} A ${radius} ${radius} 0 0 1 ${size - STROKE_WIDTH / 2} ${centerY}`;
+  const geometry = useMemo(() => arcGeometry(size), [size]);
+  const { arcLength } = geometry;
 
   const animatedProps = useAnimatedProps(() => ({
     strokeDashoffset: arcLength * (1 - progress.value / 100),
+    // A zero-length dash still paints a dot under a round cap, so an empty
+    // score shows nothing at all instead of an accent pip at the left end.
+    strokeOpacity: progress.value <= 0 ? 0 : 1,
   }));
 
   const trackColor = variant === 'onDark' ? headerColors.track : theme.colors.track;
@@ -69,9 +69,9 @@ export function ScoreArc({ value, label = 'Interview readiness', size = 220, var
       accessibilityValue={{ min: 0, max: 100, now: Math.round(clamped) }}
       style={[styles.container, { width: size }]}
     >
-      <Svg height={radius + STROKE_WIDTH} width={size}>
+      <Svg height={geometry.svgHeight} width={size}>
         <Path
-          d={d}
+          d={geometry.path}
           fill="none"
           stroke={trackColor}
           strokeLinecap="round"
@@ -79,7 +79,7 @@ export function ScoreArc({ value, label = 'Interview readiness', size = 220, var
         />
         <AnimatedPath
           animatedProps={animatedProps}
-          d={d}
+          d={geometry.path}
           fill="none"
           stroke={theme.colors.accent}
           strokeDasharray={arcLength}
@@ -87,8 +87,19 @@ export function ScoreArc({ value, label = 'Interview readiness', size = 220, var
           strokeWidth={STROKE_WIDTH}
         />
       </Svg>
-      <View style={styles.readout}>
-        <Text style={styles.score}>{displayed}%</Text>
+      <View style={[styles.readout, { marginTop: geometry.readoutOffset }]}>
+        <Text
+          style={[
+            styles.score,
+            {
+              fontSize: geometry.scoreFontSize,
+              letterSpacing: geometry.scoreLetterSpacing,
+              lineHeight: geometry.scoreLineHeight,
+            },
+          ]}
+        >
+          {displayed}%
+        </Text>
         <Text style={[styles.label, { color: labelColor }]}>{label}</Text>
       </View>
     </View>
@@ -103,15 +114,12 @@ const createStyles = (theme: Theme) =>
     readout: {
       alignItems: 'center',
       gap: spacing.xs,
-      marginTop: -spacing.xxl,
     },
+    // Size, line height and tracking are computed from the arc — see arcGeometry.
     score: {
       color: theme.colors.accent,
       fontFamily: typography.display.fontFamily,
-      fontSize: typography.display.fontSize,
       fontWeight: typography.display.fontWeight,
-      letterSpacing: typography.display.letterSpacing,
-      lineHeight: typography.display.lineHeight,
     },
     label: {
       fontFamily: typography.caption.fontFamily,
