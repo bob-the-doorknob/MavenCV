@@ -50,7 +50,7 @@ export function FocusPickerSheet({ visible, onClose, tasks, selectedIds }: Focus
   };
 
   return (
-    <Sheet onClose={onClose} title="What are you working on now?" visible={visible}>
+    <Sheet onClose={onClose} scrollable={false} title="What are you working on now?" visible={visible}>
       <Text style={styles.hint}>
         Milestones take a few weeks each — pick what you&apos;re actively doing. Up to{' '}
         {MAX_FOCUS_TASKS}.

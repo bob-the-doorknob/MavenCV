@@ -3,12 +3,32 @@ import { useAppStore } from '../store/useAppStore';
 import { ApiError, generateCvBullet } from './api';
 import { getErrorMessage } from './errorMessages';
 import { create } from 'zustand';
+import { formatMockCvBullet, legacyMockCvNumber } from '../utils/cvBullets';
 
 // Module-level lock: only one run at a time. A call while running is ignored.
 let isRunning = false;
 let screenActive = true;
 export const setCvQueueActive = (active: boolean): void => { screenActive = active; };
 export const useCvQueueStatus = create<{ running: boolean; message: string | null }>(() => ({ running: false, message: null }));
+
+/** Replaces only untouched bullets from the old demo template. */
+export const repairLegacyMockCvEntries = (): void => {
+  if (process.env.EXPO_PUBLIC_USE_MOCK_API !== 'true') return;
+  const { targets, cvEntries } = useAppStore.getState();
+  for (const entry of cvEntries) {
+    if (entry.status !== 'ready') continue;
+    const task = targets.find((target) => target.id === entry.targetId)
+      ?.roadmap.find((candidate) => candidate.id === entry.taskId);
+    if (!task) continue;
+    const oldNumber = legacyMockCvNumber(entry.text);
+    if (oldNumber === null) continue;
+    const text = formatMockCvBullet(task.title, task.notes ?? '');
+    const suggestions = oldNumber && oldNumber !== '[X]'
+      ? [`Earlier draft used ${oldNumber}. Edit to explain what it measures.`]
+      : [];
+    if (text) useAppStore.getState().updateCvEntry(entry.id, { text, suggestions });
+  }
+};
 
 /**
  * Processes every pending CV entry, one at a time, turning each into

@@ -67,7 +67,7 @@ export function TargetSwitcherSheet({
   };
 
   return (
-    <Sheet onClose={onClose} title="Your targets" visible={visible}>
+    <Sheet onClose={onClose} scrollable={false} title="Your targets" visible={visible}>
       <ScrollView contentContainerStyle={styles.list} style={styles.scroll}>
         {targets.map((target) => (
           <TargetRow

@@ -22,7 +22,7 @@ import { Button, Card, ConfirmationBanner, EmptyState, ShimmerBar, StatusNode } 
 import { usePressScale } from '../../components/ui/usePressScale';
 import { levelLabels, resolveRoleTitle } from '../../data/roles';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
-import { retryCvEntry, processPendingCvEntries, setCvQueueActive, useCvQueueStatus } from '../../services/cvQueue';
+import { repairLegacyMockCvEntries, retryCvEntry, processPendingCvEntries, setCvQueueActive, useCvQueueStatus } from '../../services/cvQueue';
 import { useProStatus } from '../../services/useProStatus';
 import { useActiveTarget, useAppStore } from '../../store/useAppStore';
 import { minTouchTarget, radii, spacing, typography, type Theme } from '../../theme/tokens';
@@ -50,8 +50,10 @@ export function CvVaultScreen() {
   const { isPro } = useProStatus();
   const queueMessage = useCvQueueStatus((state) => state.message);
   const pendingUndo = useAppStore((state) => state.pendingUndo);
+  const isDemoPreview = process.env.EXPO_PUBLIC_USE_MOCK_API === 'true';
   useFocusEffect(useCallback(() => {
     setCvQueueActive(true);
+    repairLegacyMockCvEntries();
     void processPendingCvEntries();
     return () => setCvQueueActive(false);
   }, []));
@@ -184,14 +186,9 @@ export function CvVaultScreen() {
               {entries.length === 1 ? 'bullet' : 'bullets'}
             </Text>
           </View>
-          <View style={styles.headerActions}>
-            <CopyAllButton onPress={copyAll} />
-            <Button label="Share all" onPress={() => void shareAll()} variant="secondary" />
-          </View>
         </View>
 
         {queueMessage ? <Text accessibilityRole="alert" style={styles.subtitle}>{queueMessage}</Text> : null}
-        <PrivacyControls />
         {entries.length === 0 ? (
           <EmptyState
             message="Finish a milestone and Maven writes your first CV bullet here."
@@ -210,9 +207,20 @@ export function CvVaultScreen() {
               onRetry={() => retryCvEntry(entry.id)}
               onShare={() => void shareOne(entry.text)}
               taskTitle={taskFor(entry.taskId)?.title ?? 'a deleted milestone'}
+              isDemoPreview={isDemoPreview}
             />
           ))
         )}
+
+        {readyCount > 1 ? (
+          <View style={styles.exportSection}>
+            <Text style={styles.exportLabel}>EXPORT ALL BULLETS</Text>
+            <View style={styles.headerActions}>
+              <CopyAllButton onPress={copyAll} />
+              <Button label="Share all" onPress={() => void shareAll()} style={styles.exportButton} variant="secondary" />
+            </View>
+          </View>
+        ) : null}
 
         <View style={styles.footer}>
           <Svg fill="none" height={14} viewBox="0 0 24 24" width={14}>
@@ -224,9 +232,10 @@ export function CvVaultScreen() {
             />
           </Svg>
           <Text style={styles.footerText}>
-            Bullets only use numbers you gave. Nothing is invented.
+            Review each bullet before sharing. Numbers only come from you.
           </Text>
         </View>
+        <PrivacyControls />
       </ScrollView>
 
       {banner ? (
@@ -260,7 +269,7 @@ function CopyAllButton({ onPress }: { onPress: () => void }) {
   const press = usePressScale();
 
   return (
-    <Animated.View style={press.style}>
+    <Animated.View style={[press.style, styles.exportButton]}>
       <Pressable
         accessibilityLabel="Copy all bullets. Pro feature."
         accessibilityRole="button"
@@ -289,6 +298,7 @@ interface BulletCardProps {
   onRetry: () => void;
   onShare: () => void;
   onDelete: () => void;
+  isDemoPreview: boolean;
 }
 
 function BulletCard({
@@ -301,6 +311,7 @@ function BulletCard({
   onRetry,
   onShare,
   onDelete,
+  isDemoPreview,
 }: BulletCardProps) {
   const theme = useTheme();
   const styles = useMemo(() => createStyles(theme), [theme]);
@@ -326,6 +337,7 @@ function BulletCard({
         </View>
       ) : (
         <View style={styles.block}>
+          <Text style={styles.draftLabel}>{isDemoPreview ? 'DEMO DRAFT' : 'CV BULLET'}</Text>
           {wantsNumber ? (
             <View style={styles.needsChip}>
               <Text style={styles.needsChipLabel}>Needs a number</Text>
@@ -341,19 +353,22 @@ function BulletCard({
             ))}
           </Text>
 
+          {entry.suggestions?.length ? (
+            <Text style={styles.suggestion}>{entry.suggestions[0]}</Text>
+          ) : null}
+
           {wantsNumber ? (
-            <>
-              {entry.suggestions?.length ? (
-                <Text style={styles.suggestion}>{entry.suggestions[0]}</Text>
-              ) : null}
-              <Button label="Add number" onPress={onAddNumber} />
-            </>
+            <Button label="Add number" onPress={onAddNumber} />
           ) : (
             <View style={styles.actions}>
-              <CopyButton onPress={onCopy} />
-              <Button label="Share" onPress={onShare} variant="secondary" />
-              <Button label="Edit" onPress={onEdit} variant="ghost" />
-              <Button label="Delete" onPress={onDelete} variant="ghost" />
+              <View style={styles.actionRow}>
+                <Button label="Copy" onPress={onCopy} style={styles.actionButton} />
+                <Button label="Share" onPress={onShare} style={styles.actionButton} variant="secondary" />
+              </View>
+              <View style={styles.actionRow}>
+                <Button label="Edit" onPress={onEdit} style={styles.actionButton} variant="ghost" />
+                <Button label="Delete" onPress={onDelete} style={styles.actionButton} variant="ghost" />
+              </View>
             </View>
           )}
         </View>
@@ -387,37 +402,6 @@ function TaskLabelRow({ title, onPress }: { title: string; onPress: () => void }
   );
 }
 
-function CopyButton({ onPress }: { onPress: () => void }) {
-  const theme = useTheme();
-  const styles = useMemo(() => createStyles(theme), [theme]);
-  const press = usePressScale();
-
-  return (
-    <Animated.View style={press.style}>
-      <Pressable
-        accessibilityLabel="Copy bullet"
-        accessibilityRole="button"
-        android_ripple={{ color: theme.colors.border }}
-        onPress={onPress}
-        onPressIn={press.onPressIn}
-        onPressOut={press.onPressOut}
-        style={styles.copyButton}
-      >
-        <Svg fill="none" height={16} viewBox="0 0 24 24" width={16}>
-          <Path
-            d="M9 9 H19 V19 H9 Z M5 15 V5 H15"
-            stroke={theme.colors.textPrimary}
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth={2}
-          />
-        </Svg>
-        <Text style={styles.copyButtonLabel}>Copy</Text>
-      </Pressable>
-    </Animated.View>
-  );
-}
-
 const createStyles = (theme: Theme) =>
   StyleSheet.create({
     screen: {
@@ -430,17 +414,23 @@ const createStyles = (theme: Theme) =>
     },
     header: {
       alignItems: 'flex-start',
-      flexDirection: 'row',
-      gap: spacing.md,
-      justifyContent: 'space-between',
-      marginBottom: spacing.sm,
+      gap: spacing.xs,
+      marginBottom: spacing.md,
     },
     headerActions: {
-      alignItems: 'flex-end',
+      flexDirection: 'row',
       gap: spacing.sm,
     },
+    exportSection: {
+      gap: spacing.sm,
+      marginTop: spacing.sm,
+    },
+    exportLabel: {
+      color: theme.colors.textMuted,
+      ...typography.sectionLabel,
+    },
+    exportButton: { flex: 1 },
     headerCopy: {
-      flex: 1,
       gap: spacing.xs,
     },
     title: {
@@ -461,9 +451,11 @@ const createStyles = (theme: Theme) =>
       alignItems: 'center',
       backgroundColor: theme.colors.primaryButton,
       borderRadius: radii.md,
+      flex: 1,
       flexDirection: 'row',
       gap: spacing.sm,
-      minHeight: minTouchTarget,
+      justifyContent: 'center',
+      minHeight: minTouchTarget + 6,
       paddingHorizontal: spacing.md,
     },
     copyAllLabel: {
@@ -473,13 +465,13 @@ const createStyles = (theme: Theme) =>
       fontWeight: '600',
     },
     proBadge: {
-      backgroundColor: theme.colors.accent,
+      backgroundColor: theme.colors.onPrimaryButton,
       borderRadius: radii.pill,
       paddingHorizontal: 6,
       paddingVertical: 2,
     },
     proBadgeLabel: {
-      color: theme.colors.onAccent,
+      color: theme.colors.primaryButton,
       fontFamily: typography.sectionLabel.fontFamily,
       fontSize: 10,
       fontWeight: '600',
@@ -505,7 +497,11 @@ const createStyles = (theme: Theme) =>
     },
     block: {
       gap: spacing.md,
-      marginTop: spacing.sm,
+      marginTop: spacing.md,
+    },
+    draftLabel: {
+      color: theme.colors.textMuted,
+      ...typography.sectionLabel,
     },
     bulletText: {
       color: theme.colors.textPrimary,
@@ -538,27 +534,16 @@ const createStyles = (theme: Theme) =>
       lineHeight: typography.caption.lineHeight,
     },
     actions: {
-      alignItems: 'center',
+      borderTopColor: theme.colors.divider,
+      borderTopWidth: 1,
+      gap: spacing.xs,
+      paddingTop: spacing.md,
+    },
+    actionRow: {
       flexDirection: 'row',
       gap: spacing.sm,
     },
-    copyButton: {
-      alignItems: 'center',
-      backgroundColor: theme.colors.surface,
-      borderColor: theme.colors.border,
-      borderRadius: radii.md,
-      borderWidth: 1,
-      flexDirection: 'row',
-      gap: spacing.sm,
-      minHeight: minTouchTarget,
-      paddingHorizontal: spacing.lg,
-    },
-    copyButtonLabel: {
-      color: theme.colors.textPrimary,
-      fontFamily: typography.label.fontFamily,
-      fontSize: typography.caption.fontSize,
-      fontWeight: '600',
-    },
+    actionButton: { flex: 1 },
     pending: {
       gap: spacing.sm,
       marginTop: spacing.md,
@@ -573,11 +558,11 @@ const createStyles = (theme: Theme) =>
       alignItems: 'center',
       flexDirection: 'row',
       gap: spacing.sm,
-      justifyContent: 'center',
-      marginTop: spacing.md,
+      marginTop: spacing.sm,
     },
     footerText: {
       color: theme.colors.textMuted,
+      flex: 1,
       fontFamily: typography.caption.fontFamily,
       fontSize: typography.caption.fontSize,
     },

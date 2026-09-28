@@ -60,7 +60,7 @@ export function ProUpsellSheet({ visible, onClose, trigger = 'exportBullets' }: 
   };
 
   return (
-    <Sheet onClose={onClose} title={copy.title} visible={visible}>
+    <Sheet onClose={onClose} scrollable={false} title={copy.title} visible={visible}>
       <ScrollView style={styles.scroll} contentContainerStyle={styles.list}>
       <Text style={styles.body}>{copy.body}</Text>
       <View style={styles.list}>

@@ -4,6 +4,8 @@ import type { CvEntry } from '../types';
 import {
   fillNumberPlaceholder,
   formatBulletsForCopy,
+  formatMockCvBullet,
+  legacyMockCvNumber,
   needsNumber,
   splitOnPlaceholder,
 } from './cvBullets';
@@ -16,6 +18,35 @@ const entry = (overrides: Partial<CvEntry> = {}): CvEntry => ({
   text: 'Built 1 portfolio project.',
   createdAt: '2026-01-01T00:00:00.000Z',
   ...overrides,
+});
+
+describe('formatMockCvBullet', () => {
+  it('uses meaningful completion notes without repeating the task title', () => {
+    expect(formatMockCvBullet('Build 1 PDF chatbot', 'I built a PDF chatbot and tested 3 questions.'))
+      .toBe('Built a PDF chatbot and tested 3 questions.');
+  });
+
+  it('falls back to the completed task title for vague notes', () => {
+    expect(formatMockCvBullet('Build 1 PDF chatbot', 'I build.')).toBe('Built 1 PDF chatbot.');
+  });
+
+  it('does not fabricate a number', () => {
+    expect(formatMockCvBullet('Create a portfolio', 'I created a portfolio showing my class projects.'))
+      .toBe('Created a portfolio showing my class projects.');
+  });
+});
+
+describe('legacyMockCvNumber', () => {
+  it('matches untouched old demo output and a filled placeholder', () => {
+    expect(legacyMockCvNumber('Completed Build 1 PDF chatbot, as shown by: I built 3 things.')).toBe('');
+    expect(legacyMockCvNumber('Completed Build 1 PDF chatbot by 3, based on: I build.')).toBe('3');
+    expect(legacyMockCvNumber('Built 1 PDF chatbot.')).toBe(null);
+  });
+
+  it('recognizes old template even after milestone notes change', () => {
+    expect(legacyMockCvNumber('Completed Build one AI chatbot by 3, based on: I build.')).toBe('3');
+    expect(legacyMockCvNumber('Completed 3 PDF chatbots for class.')).toBe(null);
+  });
 });
 
 describe('needsNumber', () => {

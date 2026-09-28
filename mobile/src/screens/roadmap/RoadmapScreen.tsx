@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Alert, Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
-import { useNavigation } from '@react-navigation/native';
+import { useIsFocused, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import Animated from 'react-native-reanimated';
 import Svg, { Path } from 'react-native-svg';
@@ -65,6 +65,7 @@ const SCORE_LABELS = {
 
 export function RoadmapScreen() {
   const theme = useTheme();
+  const isFocused = useIsFocused();
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<Navigation>();
   const styles = useMemo(() => createStyles(theme), [theme]);
@@ -451,7 +452,7 @@ export function RoadmapScreen() {
   return (
     <View style={styles.screen}>
       {/* The header block behind the status bar is always dark. */}
-      <StatusBar style="light" />
+      {isFocused ? <StatusBar style="light" /> : null}
       <TargetSwitcherSheet
         activeTargetId={target?.id ?? null}
         onAddTarget={() => void addTarget()}
