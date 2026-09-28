@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
-import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Alert, Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { useNavigation } from '@react-navigation/native';
@@ -28,12 +28,14 @@ import { levelLabels, resolveRoleTitle } from '../../data/roles';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { useActiveTarget, useAppStore, useFocusTasks, useReadiness, isCheckInDue } from '../../store/useAppStore';
 import { checkProEntitlement } from '../../services/proStatus';
+import { processPendingCvEntries } from '../../services/cvQueue';
 import { headerColors, minTouchTarget, radii, spacing, typography, type Theme } from '../../theme/tokens';
 import { useTheme } from '../../theme/useTheme';
 import { countSteps, orderRoadmap, sortMilestones, taskMetaLine } from '../../utils/groupTasks';
 import { categoryKeyForRole } from '../../utils/roleCategory';
-import { fits, scheduleLabel } from '../../utils/schedule';
+import { fits, overdueSummary, scheduleLabel } from '../../utils/schedule';
 import type { PaywallTrigger } from '../../utils/paywallCopy';
+import { calculateStreak, completionTimestamps, streakLabel } from '../../utils/streak';
 import { formatDueDate, formatMonthYear, formatWeeksLeft } from '../../utils/targetDate';
 import type { MilestoneSort, RoadmapTask } from '../../types';
 import { ProUpsellSheet } from '../cv/ProUpsellSheet';
@@ -77,6 +79,7 @@ export function RoadmapScreen() {
   const completionNotice = useAppStore((state) => state.completionNotice);
   const completedTaskId = useAppStore((state) => state.completedTaskId);
   const pendingUndo = useAppStore((state) => state.pendingUndo);
+  const [refreshing, setRefreshing] = useState(false);
 
   const addTarget = async (): Promise<void> => {
     if (addingTarget) return;
@@ -203,6 +206,30 @@ export function RoadmapScreen() {
     navigation.navigate('TaskDetail', { taskId });
   };
 
+  const overdue = useMemo(() => overdueSummary(roadmap, now), [roadmap, now]);
+  const streak = useMemo(
+    () => (target ? calculateStreak(completionTimestamps(target), now) : 0),
+    [target, now],
+  );
+
+  /**
+   * Dates move on their own, so a refresh re-lays the schedule against today
+   * and picks up any CV bullets that were waiting on a connection.
+   */
+  const onRefresh = useCallback(async (): Promise<void> => {
+    setRefreshing(true);
+    try {
+      const current = useAppStore.getState();
+      const active = current.targets.find((entry) => entry.id === current.activeTargetId);
+      if (active?.targetDate) {
+        current.applySchedule(active.schedulePace ?? 'comfortable');
+      }
+      await processPendingCvEntries();
+    } finally {
+      setRefreshing(false);
+    }
+  }, []);
+
   // The celebration lands once per target, ever: the stamp is persisted, so
   // reopening the app at 100% is quiet.
   const isReady = ordered.totalCount > 0 && readiness === 100;
@@ -284,9 +311,33 @@ export function RoadmapScreen() {
             value={readiness}
           />
 
-          <Text style={styles.headerCaption}>
-            {ordered.doneCount} of {ordered.totalCount} milestones done
-          </Text>
+          <Pressable
+            accessibilityHint="Opens your journey"
+            accessibilityLabel={`${ordered.doneCount} of ${ordered.totalCount} milestones done. See your journey.`}
+            accessibilityRole="button"
+            hitSlop={12}
+            onPress={() => navigation.navigate('Journey')}
+            style={styles.headerCaptionTarget}
+          >
+            <Text style={styles.headerCaption}>
+              {ordered.doneCount} of {ordered.totalCount} milestones done
+              {streakLabel(streak) ? ` · ${streakLabel(streak)}` : ''}
+            </Text>
+            <Text style={styles.headerCaptionLink}>See your journey</Text>
+          </Pressable>
+
+          {overdue ? (
+            <Pressable
+              accessibilityHint="Opens the earliest one"
+              accessibilityLabel={overdue.label}
+              accessibilityRole="button"
+              hitSlop={12}
+              onPress={() => openTask(overdue.firstId)}
+              style={styles.overdueRow}
+            >
+              <Text style={styles.overdueText}>{overdue.label}</Text>
+            </Pressable>
+          ) : null}
 
           <Pressable
             accessibilityLabel="How is this scored?"
@@ -440,6 +491,14 @@ export function RoadmapScreen() {
           void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
           useAppStore.getState().reorderTasks(data.map((item) => item.id));
         }}
+        refreshControl={
+          <RefreshControl
+            colors={[theme.colors.accent]}
+            onRefresh={() => void onRefresh()}
+            refreshing={refreshing}
+            tintColor={theme.colors.accent}
+          />
+        }
         renderItem={renderMilestone}
         style={styles.screen}
       />
@@ -814,6 +873,34 @@ const createStyles = (theme: Theme) =>
       flexWrap: 'wrap',
       gap: spacing.sm,
       justifyContent: 'center',
+    },
+    overdueRow: {
+      alignItems: 'center',
+      justifyContent: 'center',
+      minHeight: minTouchTarget,
+      paddingHorizontal: spacing.sm,
+    },
+    overdueText: {
+      // The header block is always dark, so the paper danger would not read.
+      color: headerColors.danger,
+      fontFamily: typography.caption.fontFamily,
+      fontSize: typography.caption.fontSize,
+      lineHeight: typography.caption.lineHeight,
+      textDecorationLine: 'underline',
+    },
+    headerCaptionTarget: {
+      alignItems: 'center',
+      gap: 2,
+      justifyContent: 'center',
+      minHeight: minTouchTarget,
+      paddingHorizontal: spacing.sm,
+    },
+    headerCaptionLink: {
+      color: headerColors.text,
+      fontFamily: typography.caption.fontFamily,
+      fontSize: typography.caption.fontSize,
+      lineHeight: typography.caption.lineHeight,
+      textDecorationLine: 'underline',
     },
     headerCaption: {
       color: headerColors.textSecondary,

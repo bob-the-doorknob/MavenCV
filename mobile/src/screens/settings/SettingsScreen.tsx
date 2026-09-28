@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -18,6 +18,8 @@ import { ProUpsellSheet } from '../cv/ProUpsellSheet';
 import { useActiveTarget, useAppStore } from '../../store/useAppStore';
 import { minTouchTarget, spacing, typography, type Theme } from '../../theme/tokens';
 import { useTheme } from '../../theme/useTheme';
+import { formatExportText } from '../../utils/exportText';
+import { formatMonthYear } from '../../utils/targetDate';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 
@@ -84,6 +86,21 @@ export function SettingsScreen() {
         },
       ],
     );
+  };
+
+  /** Plain text, shared through the OS sheet — email, notes, wherever. */
+  const exportEverything = async (): Promise<void> => {
+    if (!target) {
+      Alert.alert('Nothing to export', 'Create a target role first.');
+      return;
+    }
+    try {
+      await Share.share({
+        message: formatExportText(target, useAppStore.getState().cvEntries, formatMonthYear),
+      });
+    } catch {
+      Alert.alert('Export failed', 'The share sheet could not be opened. Please try again.');
+    }
   };
 
   const restore = async (): Promise<void> => {
@@ -184,8 +201,14 @@ export function SettingsScreen() {
           <SectionLabel>Data</SectionLabel>
           <Card>
             <SettingsRow
-              isDanger
               isFirst
+              onPress={() => void exportEverything()}
+              subtitle="Share your target, milestones and CV bullets as plain text"
+              title="Export everything"
+            />
+            <SettingsRow
+              isDanger
+              isFirst={false}
               onPress={confirmReset}
               subtitle="Deletes every roadmap and CV bullet on this device"
               title="Reset all data"

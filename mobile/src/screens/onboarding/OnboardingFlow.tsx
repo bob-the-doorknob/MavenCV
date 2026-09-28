@@ -1,10 +1,11 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 
 import { CUSTOM_ROLE_ID, type Level } from '../../data/roles';
+import { useAppStore } from '../../store/useAppStore';
 import { useTheme } from '../../theme/useTheme';
 import { EXPERIENCE_MIN_LENGTH } from '../../utils/experienceLimits';
 import { AboutYouScreen } from './AboutYouScreen';
@@ -26,15 +27,43 @@ const MAX_CUSTOM_TITLE_LENGTH = 60;
  */
 export function OnboardingFlow() {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
-  const finish = useCallback(() => { if (navigation.canGoBack()) navigation.goBack(); }, [navigation]);
+  const finish = useCallback(() => {
+    // The draft has served its purpose once a target exists.
+    useAppStore.getState().clearOnboardingDraft();
+    if (navigation.canGoBack()) navigation.goBack();
+  }, [navigation]);
   const theme = useTheme();
-  const [step, setStep] = useState<Step>('role');
-  const [roleId, setRoleId] = useState<string | null>(null);
-  const [customTitle, setCustomTitle] = useState('');
-  const [level, setLevel] = useState<Level | null>(null);
-  const [employer, setEmployer] = useState('');
-  const [experience, setExperience] = useState('');
-  const [targetDate, setTargetDate] = useState<string | null>(null);
+
+  // Read once on mount: the draft seeds the form, it does not drive it.
+  const [draft] = useState(() => useAppStore.getState().onboardingDraft);
+  const [step, setStep] = useState<Step>(draft?.step ?? 'role');
+  const [roleId, setRoleId] = useState<string | null>(draft?.roleId ?? null);
+  const [customTitle, setCustomTitle] = useState(draft?.customTitle ?? '');
+  const [level, setLevel] = useState<Level | null>(draft?.level ?? null);
+  const [employer, setEmployer] = useState(draft?.employer ?? '');
+  const [experience, setExperience] = useState(draft?.experience ?? '');
+  const [targetDate, setTargetDate] = useState<string | null>(draft?.targetDate ?? null);
+
+  /**
+   * Saved on every answer, so quitting mid-flow loses nothing. 'generating'
+   * is never stored — coming back into a wait that is no longer running
+   * would strand the user.
+   */
+  useEffect(() => {
+    if (step === 'generating') {
+      return;
+    }
+    useAppStore.getState().saveOnboardingDraft({
+      step,
+      roleId,
+      customTitle,
+      level,
+      employer,
+      experience,
+      targetDate,
+      savedAt: new Date().toISOString(),
+    });
+  }, [step, roleId, customTitle, level, employer, experience, targetDate]);
 
   const handleCustomTitleChange = useCallback((text: string) => {
     setCustomTitle(text.slice(0, MAX_CUSTOM_TITLE_LENGTH));

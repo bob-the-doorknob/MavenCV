@@ -5,6 +5,7 @@ import {
   buildSchedule,
   clampEstimatedWeeks,
   fits,
+  overdueSummary,
   scheduleStatus,
   totalEstimatedWeeks,
   weeksUntil,
@@ -240,5 +241,48 @@ describe('scheduleStatus', () => {
   it('is none without a target date, and for an unparseable one', () => {
     expect(scheduleStatus(task(), NOW)).toBe('none');
     expect(scheduleStatus(task({ targetDate: 'not a date' }), NOW)).toBe('none');
+  });
+});
+
+describe('overdueSummary', () => {
+  it('is null when nothing is overdue', () => {
+    expect(overdueSummary([task({ targetDate: weeksFromNow(2) })], NOW)).toBeNull();
+    expect(overdueSummary([], NOW)).toBeNull();
+  });
+
+  it('counts overdue milestones and points at the earliest', () => {
+    const summary = overdueSummary(
+      [
+        task({ id: 'late', targetDate: weeksFromNow(-1) }),
+        task({ id: 'later', targetDate: weeksFromNow(-3) }),
+        task({ id: 'fine', targetDate: weeksFromNow(2) }),
+      ],
+      NOW,
+    );
+
+    expect(summary).toEqual({
+      count: 2,
+      firstId: 'later',
+      label: '2 milestones past their date',
+    });
+  });
+
+  it('reads naturally for a single milestone', () => {
+    const summary = overdueSummary([task({ id: 'late', targetDate: weeksFromNow(-1) })], NOW);
+
+    expect(summary?.label).toBe('1 milestone past its date');
+  });
+
+  it('ignores finished milestones, however old their date', () => {
+    const summary = overdueSummary(
+      [task({ id: 'done', status: 'done', targetDate: weeksFromNow(-8) })],
+      NOW,
+    );
+
+    expect(summary).toBeNull();
+  });
+
+  it('ignores milestones with no date', () => {
+    expect(overdueSummary([task({ id: 'undated' })], NOW)).toBeNull();
   });
 });

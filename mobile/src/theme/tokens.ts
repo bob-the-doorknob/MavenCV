@@ -98,6 +98,8 @@ export const headerColors = {
   textSecondary: '#A8A49B',
   track: '#2C2F36',
   control: '#24272D',
+  /** Light enough to read on the header's own dark, unlike the paper danger. */
+  danger: '#FF6B5C',
 } as const;
 
 export type CategoryKey = 'engineering' | 'dataAi' | 'productDesign' | 'businessFinance';

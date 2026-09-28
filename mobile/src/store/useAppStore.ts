@@ -6,6 +6,7 @@ import { useShallow } from 'zustand/react/shallow';
 import type { Level } from '../data/roles';
 import type {
   CvEntry,
+  OnboardingDraft,
   CvEntryStatus,
   MilestoneSort,
   RoadmapTask,
@@ -32,12 +33,15 @@ export interface PersistedAppState {
   targets: Target[];
   activeTargetId: string | null;
   cvEntries: CvEntry[];
+  /** Null unless the user is part-way through onboarding. */
+  onboardingDraft: OnboardingDraft | null;
 }
 
 const emptyState: PersistedAppState = {
   targets: [],
   activeTargetId: null,
   cvEntries: [],
+  onboardingDraft: null,
 };
 
 type ShapeCheck = { ok: true } | { ok: false; reason: string };
@@ -146,6 +150,7 @@ interface PersistedShape {
   targets: PersistedTarget[];
   activeTargetId: string | null;
   cvEntries: CvEntry[];
+  onboardingDraft?: OnboardingDraft | null;
 }
 
 /** Fills the fields added after the first release, leaving everything else untouched. */
@@ -210,8 +215,15 @@ export const migrate = (persistedState: unknown): PersistedAppState => {
   }
   const persisted = persistedState as PersistedShape;
   const targets = persisted.targets.map(normalizeTarget);
-  return { ...persisted, targets, activeTargetId: targets.some((target) => target.id === persisted.activeTargetId)
-    ? persisted.activeTargetId : targets[0]?.id ?? null };
+  return {
+    ...persisted,
+    targets,
+    // A draft written before this field existed is simply absent.
+    onboardingDraft: persisted.onboardingDraft ?? null,
+    activeTargetId: targets.some((target) => target.id === persisted.activeTargetId)
+      ? persisted.activeTargetId
+      : targets[0]?.id ?? null,
+  };
 };
 
 export type AddTargetInput = Omit<
@@ -283,6 +295,9 @@ interface AppState extends PersistedAppState {
   moveStep: (taskId: string, stepId: string, offset: -1 | 1) => void;
   /** Ticks every step on a task at once. */
   completeAllSteps: (taskId: string) => void;
+  /** Remembers where onboarding got to, so quitting does not lose the answers. */
+  saveOnboardingDraft: (draft: OnboardingDraft) => void;
+  clearOnboardingDraft: () => void;
   /** Appends a user-created milestone to the active target's roadmap. */
   addMilestone: (input: AddMilestoneInput) => string;
   /** Reorders the active roadmap. Unknown ids are ignored; omitted tasks keep their order at the end. */
@@ -623,7 +638,17 @@ export const useAppStore = create<AppState>()(
       toggleStep: (taskId, stepId) =>
         set((state) => ({
           targets: mapTaskSteps(state.targets, state.activeTargetId, taskId, (steps) =>
-            steps.map((step) => (step.id === stepId ? { ...step, done: !step.done } : step)),
+            steps.map((step) => {
+              if (step.id !== stepId) {
+                return step;
+              }
+              // Un-ticking drops the stamp, so the streak only ever counts
+              // work that is actually finished.
+              const { completedAt: _cleared, ...rest } = step;
+              return step.done
+                ? { ...rest, done: false }
+                : { ...rest, done: true, completedAt: new Date().toISOString() };
+            }),
           ),
         })),
 
@@ -685,6 +710,10 @@ export const useAppStore = create<AppState>()(
               : { ...target, readyCelebratedAt: new Date().toISOString() },
           ),
         })),
+
+      saveOnboardingDraft: (draft) => set({ onboardingDraft: draft }),
+
+      clearOnboardingDraft: () => set({ onboardingDraft: null }),
 
       pendingUndo: null,
 
@@ -759,7 +788,9 @@ export const useAppStore = create<AppState>()(
       completeAllSteps: (taskId) =>
         set((state) => ({
           targets: mapTaskSteps(state.targets, state.activeTargetId, taskId, (steps) =>
-            steps.map((step) => (step.done ? step : { ...step, done: true })),
+            steps.map((step) =>
+              step.done ? step : { ...step, done: true, completedAt: new Date().toISOString() },
+            ),
           ),
         })),
 
@@ -805,7 +836,7 @@ export const useAppStore = create<AppState>()(
         ...currentState,
         ...migrate(persistedState),
       }),
-      partialize: ({ targets, activeTargetId, cvEntries }) => ({ targets, activeTargetId, cvEntries }),
+      partialize: ({ targets, activeTargetId, cvEntries, onboardingDraft }) => ({ targets, activeTargetId, cvEntries, onboardingDraft }),
     },
   ),
 );

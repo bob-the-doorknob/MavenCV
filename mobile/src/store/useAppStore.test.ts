@@ -357,7 +357,7 @@ describe('migrate', () => {
       cvEntries: [fullCvEntry({ status: 'ready', text: 'Built 1 thing.', suggestions: ['Add a metric.'] })],
     };
 
-    expect(migrate(valid)).toEqual(valid);
+    expect(migrate(valid)).toEqual({ ...valid, onboardingDraft: null });
   });
 
   it('keeps an unrecognized extra field instead of resetting', () => {
@@ -369,7 +369,7 @@ describe('migrate', () => {
       appBuild: '0.1.0',
     };
 
-    expect(migrate(withExtra)).toEqual(withExtra);
+    expect(migrate(withExtra)).toEqual({ ...withExtra, onboardingDraft: null });
     expect(warnSpy).not.toHaveBeenCalled();
 
     warnSpy.mockRestore();
@@ -384,7 +384,7 @@ describe('migrate', () => {
       cvEntries: [fullCvEntry()],
     };
 
-    expect(migrate(missingOptionals)).toEqual(missingOptionals);
+    expect(migrate(missingOptionals)).toEqual({ ...missingOptionals, onboardingDraft: null });
     expect(warnSpy).not.toHaveBeenCalled();
 
     warnSpy.mockRestore();
@@ -408,8 +408,9 @@ describe('migrate', () => {
   it('resets silently (no warning) when nothing has been persisted yet', () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
-    expect(migrate(undefined)).toEqual({ targets: [], activeTargetId: null, cvEntries: [] });
-    expect(migrate(null)).toEqual({ targets: [], activeTargetId: null, cvEntries: [] });
+    const empty = { targets: [], activeTargetId: null, cvEntries: [], onboardingDraft: null };
+    expect(migrate(undefined)).toEqual(empty);
+    expect(migrate(null)).toEqual(empty);
     expect(warnSpy).not.toHaveBeenCalled();
 
     warnSpy.mockRestore();
@@ -479,7 +480,7 @@ describe('migrate', () => {
       cvEntries: [],
     };
 
-    expect(migrate(current)).toEqual(current);
+    expect(migrate(current)).toEqual({ ...current, onboardingDraft: null });
   });
 
   it('resets when steps are present but wrong-typed', () => {
@@ -1023,5 +1024,69 @@ describe('setMilestoneSort', () => {
     expect(targets.find((entry) => entry.id === first)?.milestoneSort).toBe('priority');
     expect(targets.find((entry) => entry.id === second)?.milestoneSort).toBe('dueDate');
     setActiveTarget(first);
+  });
+});
+
+describe('onboarding draft', () => {
+  const draft = {
+    step: 'aboutYou' as const,
+    roleId: 'software-engineer',
+    customTitle: '',
+    level: 'internship' as const,
+    employer: 'Example Corp',
+    experience: 'Two class projects.',
+    targetDate: null,
+    savedAt: '2026-09-23T00:00:00.000Z',
+  };
+
+  it('keeps the draft so a quit mid-flow loses nothing', () => {
+    useAppStore.getState().saveOnboardingDraft(draft);
+
+    expect(useAppStore.getState().onboardingDraft).toEqual(draft);
+  });
+
+  it('survives a rehydration', () => {
+    expect(migrate({ targets: [], activeTargetId: null, cvEntries: [], onboardingDraft: draft }))
+      .toMatchObject({ onboardingDraft: draft });
+  });
+
+  it('is cleared once onboarding finishes', () => {
+    const { saveOnboardingDraft, clearOnboardingDraft } = useAppStore.getState();
+    saveOnboardingDraft(draft);
+
+    clearOnboardingDraft();
+
+    expect(useAppStore.getState().onboardingDraft).toBeNull();
+  });
+});
+
+describe('step completion stamps', () => {
+  const firstStep = () => useAppStore.getState().targets[0]?.roadmap[0]?.steps[0];
+
+  beforeEach(() => {
+    useAppStore.getState().addTarget({
+      ...baseTargetInput,
+      roadmap: [task({ steps: [step({ id: '1' })] })],
+    });
+  });
+
+  it('stamps a step when it is ticked', () => {
+    useAppStore.getState().toggleStep('task-1', '1');
+
+    expect(firstStep()).toMatchObject({ done: true, completedAt: expect.any(String) });
+  });
+
+  it('drops the stamp when a step is un-ticked, so the streak stays honest', () => {
+    useAppStore.getState().toggleStep('task-1', '1');
+    useAppStore.getState().toggleStep('task-1', '1');
+
+    expect(firstStep()?.done).toBe(false);
+    expect(firstStep()).not.toHaveProperty('completedAt');
+  });
+
+  it('stamps every step that mark-all-done actually changes', () => {
+    useAppStore.getState().completeAllSteps('task-1');
+
+    expect(firstStep()).toMatchObject({ done: true, completedAt: expect.any(String) });
   });
 });

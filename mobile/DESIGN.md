@@ -37,6 +37,7 @@ The dark header is a fixed surface, not a themed one — it is dark in both ligh
 | `textSecondary` | `#A8A49B` |
 | `track` | `#2C2F36` |
 | `control` | `#24272D` |
+| `danger` | `#FF6B5C` |
 
 ### Dark mode
 

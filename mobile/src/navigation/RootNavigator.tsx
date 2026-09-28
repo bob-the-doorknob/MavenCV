@@ -14,6 +14,7 @@ import Svg, { Path } from 'react-native-svg';
 
 import { CvVaultScreen } from '../screens/cv/CvVaultScreen';
 import { OnboardingFlow } from '../screens/onboarding/OnboardingFlow';
+import { JourneyScreen } from '../screens/journey/JourneyScreen';
 import { RegenerateScreen } from '../screens/roadmap/RegenerateScreen';
 import { RoadmapScreen } from '../screens/roadmap/RoadmapScreen';
 import { SettingsScreen } from '../screens/settings/SettingsScreen';
@@ -31,6 +32,7 @@ export type RootStackParamList = {
   UiGallery: undefined;
   AddTarget: undefined;
   RegenerateRoadmap: undefined;
+  Journey: undefined;
   Settings: undefined;
 };
 
@@ -165,6 +167,7 @@ export function RootNavigator() {
             <Stack.Screen component={MainTabs} name="MainTabs" />
             <Stack.Screen component={TaskDetailScreen} name="TaskDetail" />
             <Stack.Screen component={SettingsScreen} name="Settings" />
+            <Stack.Screen component={JourneyScreen} name="Journey" />
             <Stack.Screen
               component={RegenerateScreen}
               name="RegenerateRoadmap"
