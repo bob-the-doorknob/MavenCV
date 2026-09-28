@@ -20,6 +20,16 @@
         "projectId": "0bce248e-277a-4699-ab5d-02c393fe165d"
       }
     },
-    "plugins": ["expo-secure-store"]
+    "plugins": [
+      "expo-secure-store",
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#F6F4EE",
+          "dark": { "backgroundColor": "#111214" },
+          "resizeMode": "contain"
+        }
+      ]
+    ]
   }
 }

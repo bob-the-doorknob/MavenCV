@@ -1,16 +1,22 @@
 import { useEffect, useMemo } from 'react';
-import { StyleSheet, View, Text } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
+import * as SplashScreen from 'expo-splash-screen';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
+import { BrandSplash } from './src/components/BrandSplash';
+import { Button } from './src/components/ui';
 import { RootNavigator } from './src/navigation/RootNavigator';
 import { configureRevenueCat } from './src/services/revenueCat';
 import { useAppStore, useStorageStatus } from './src/store/useAppStore';
-import { Button } from './src/components/ui';
-import { spacing, typography, type Theme } from './src/theme/tokens';
+import type { Theme } from './src/theme/tokens';
 import { useAppFonts } from './src/theme/fonts';
 import { useTheme } from './src/theme/useTheme';
+
+// Hold the native splash from the first frame, so nothing paper-blank shows
+// before the fonts and the saved roadmap are in.
+void SplashScreen.preventAutoHideAsync();
 
 export default function App() {
   const theme = useTheme();
@@ -18,9 +24,19 @@ export default function App() {
   const { ready: hydrated, error } = useStorageStatus();
   const styles = useMemo(() => createStyles(theme), [theme]);
 
+  const canRender = fontsReady && hydrated;
+
   useEffect(() => {
     configureRevenueCat();
   }, []);
+
+  // The splash also comes down on a storage failure — that state needs a
+  // retry button, which the native splash cannot draw.
+  useEffect(() => {
+    if (canRender || error) {
+      void SplashScreen.hideAsync();
+    }
+  }, [canRender, error]);
 
   return (
     // react-native-gesture-handler requires this at the root; the milestone
@@ -32,23 +48,34 @@ export default function App() {
         <View style={styles.surface}>
           {/* Screens with a dark header block override this with their own. */}
           <StatusBar style={theme.mode === 'dark' ? 'light' : 'dark'} />
-          {/* Nothing renders until the fonts are in — typography is the loudest
-              part of this design and swapping it in late looks broken. */}
-          {fontsReady && hydrated ? <RootNavigator /> : <View style={styles.loading}>
-            <Text accessibilityRole={error ? 'alert' : 'text'} style={styles.message}>{error ?? 'Loading saved roadmap…'}</Text>
-            {error ? <Button label="Retry loading saved data" onPress={() => void useAppStore.persist.rehydrate()} /> : null}
-          </View>}
+          {canRender ? (
+            <RootNavigator />
+          ) : (
+            <BrandSplash
+              isError={Boolean(error)}
+              message={error ?? 'Loading your saved roadmap'}
+            >
+              {error ? (
+                <Button
+                  label="Retry loading saved data"
+                  onPress={() => void useAppStore.persist.rehydrate()}
+                />
+              ) : null}
+            </BrandSplash>
+          )}
         </View>
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );
 }
 
-const createStyles = (theme: Theme) => StyleSheet.create({
-  surface: { flex: 1, backgroundColor: theme.colors.background },
-  loading: { flex: 1, justifyContent: 'center', padding: spacing.xl, gap: spacing.lg },
-  message: { ...typography.body, color: theme.colors.textPrimary },
-  container: {
-    flex: 1,
-  },
-});
+const createStyles = (theme: Theme) =>
+  StyleSheet.create({
+    container: {
+      flex: 1,
+    },
+    surface: {
+      backgroundColor: theme.colors.background,
+      flex: 1,
+    },
+  });

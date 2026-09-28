@@ -642,6 +642,27 @@ describe('selectFocusTasks', () => {
   });
 });
 
+describe('markReadyCelebrated', () => {
+  it('stamps the active target once and never moves the stamp', () => {
+    const { addTarget, markReadyCelebrated } = useAppStore.getState();
+    addTarget({ ...baseTargetInput, roadmap: [task({ status: 'done' })] });
+
+    markReadyCelebrated();
+    const first = useAppStore.getState().targets[0]?.readyCelebratedAt;
+    expect(first).toEqual(expect.any(String));
+
+    markReadyCelebrated();
+
+    expect(useAppStore.getState().targets[0]?.readyCelebratedAt).toBe(first);
+  });
+
+  it('does nothing when there is no active target', () => {
+    useAppStore.getState().markReadyCelebrated();
+
+    expect(useAppStore.getState().targets).toEqual([]);
+  });
+});
+
 describe('check-ins', () => {
   afterEach(() => {
     vi.useRealTimers();

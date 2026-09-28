@@ -415,7 +415,9 @@ const createStyles = (theme: Theme) =>
       fontSize: typography.caption.fontSize,
     },
     hintPositive: {
-      color: theme.colors.accentText,
+      // Ink, not accentText: the rust read as a warning on a hint that means
+      // "this is enough".
+      color: theme.colors.textPrimary,
       fontWeight: '600',
     },
     filledNote: {

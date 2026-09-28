@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
@@ -47,17 +47,6 @@ const SCORE_LABELS = {
   internship: 'ready for internships',
   'entry-level': 'ready for entry-level roles',
 } as const;
-
-const handleResetPress = (): void => {
-  Alert.alert(
-    'Reset app data',
-    "This deletes your roadmap and CV lines from this device. This can't be undone.",
-    [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'Reset', style: 'destructive', onPress: () => useAppStore.getState().resetAll() },
-    ],
-  );
-};
 
 export function RoadmapScreen() {
   const theme = useTheme();
@@ -140,6 +129,19 @@ export function RoadmapScreen() {
     navigation.navigate('TaskDetail', { taskId });
   };
 
+  // The celebration lands once per target, ever: the stamp is persisted, so
+  // reopening the app at 100% is quiet.
+  const isReady = ordered.totalCount > 0 && readiness === 100;
+  const hasCelebrated = Boolean(target?.readyCelebratedAt);
+
+  useEffect(() => {
+    if (!isReady || hasCelebrated) {
+      return;
+    }
+    void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    useAppStore.getState().markReadyCelebrated();
+  }, [isReady, hasCelebrated]);
+
   const renderMilestone = ({ item, getIndex, drag, isActive }: RenderItemParams<MilestoneItem>) => {
     // Indices shift while a drag is in flight, so the rail is derived from the
     // list's live index rather than a captured one.
@@ -172,7 +174,10 @@ export function RoadmapScreen() {
   const listHeader = (
     <View style={styles.headerStack}>
         <View style={styles.header}>
-          <SectionLabel color={headerColors.textSecondary}>Your roadmap</SectionLabel>
+          <View style={styles.headerTop}>
+            <SectionLabel color={headerColors.textSecondary}>Your roadmap</SectionLabel>
+            <SettingsButton onPress={() => navigation.navigate('Settings')} />
+          </View>
           <Text style={styles.roleTitle}>
             {target ? resolveRoleTitle(target.roleId, target.customTitle) : 'No target role'}
           </Text>
@@ -201,6 +206,16 @@ export function RoadmapScreen() {
             <Text style={styles.scoringLink}>How is this scored?</Text>
           </Pressable>
         </View>
+
+        {isReady && target ? (
+          <View style={styles.section}>
+            <ReadyCard
+              doneCount={ordered.doneCount}
+              onExport={() => navigation.navigate('MainTabs', { screen: 'Cv' })}
+              roleTitle={resolveRoleTitle(target.roleId, target.customTitle)}
+            />
+          </View>
+        ) : null}
 
         <View style={styles.section}>
           <Button label="Manage target roles" onPress={() => setTargetsVisible(true)} variant="ghost" />
@@ -271,15 +286,6 @@ export function RoadmapScreen() {
               style={styles.devLinkContainer}
             >
               <Text style={styles.devLink}>UI Gallery (dev)</Text>
-            </Pressable>
-            <Pressable
-              accessibilityLabel="Reset app data"
-              accessibilityRole="button"
-              android_ripple={{ color: theme.colors.border }}
-              onPress={handleResetPress}
-              style={styles.devLinkContainer}
-            >
-              <Text style={styles.devLink}>Reset app data (dev)</Text>
             </Pressable>
           </View>
         ) : null}
@@ -375,6 +381,65 @@ export function RoadmapScreen() {
 
       <AddMilestoneSheet onClose={() => setAddMilestoneVisible(false)} visible={addMilestoneVisible} />
     </View>
+  );
+}
+
+function SettingsButton({ onPress }: { onPress: () => void }) {
+  const theme = useTheme();
+  const styles = useMemo(() => createStyles(theme), [theme]);
+  const press = usePressScale();
+
+  return (
+    <Animated.View style={press.style}>
+      <Pressable
+        accessibilityLabel="Settings"
+        accessibilityRole="button"
+        android_ripple={{ borderless: true, color: headerColors.control }}
+        onPress={onPress}
+        onPressIn={press.onPressIn}
+        onPressOut={press.onPressOut}
+        style={styles.gearButton}
+      >
+        <Svg fill="none" height={22} viewBox="0 0 24 24" width={22}>
+          <Path
+            d="M12 15.2 A3.2 3.2 0 1 0 12 8.8 A3.2 3.2 0 1 0 12 15.2 Z"
+            stroke={headerColors.text}
+            strokeWidth={1.8}
+          />
+          <Path
+            d="M12 2.8 L13.4 5.3 L16.2 4.7 L16.6 7.5 L19.3 8.4 L18 10.9 L19.9 13 L17.6 14.6 L18 17.4 L15.2 17.6 L14 20.2 L11.6 19 L9.2 20.2 L8 17.6 L5.2 17.4 L5.6 14.6 L3.3 13 L5.2 10.9 L3.9 8.4 L6.6 7.5 L7 4.7 L9.8 5.3 Z"
+            stroke={headerColors.text}
+            strokeLinejoin="round"
+            strokeWidth={1.6}
+          />
+        </Svg>
+      </Pressable>
+    </Animated.View>
+  );
+}
+
+interface ReadyCardProps {
+  roleTitle: string;
+  doneCount: number;
+  onExport: () => void;
+}
+
+/** Shown only at 100%: the roadmap is finished, so the screen leads with it. */
+function ReadyCard({ roleTitle, doneCount, onExport }: ReadyCardProps) {
+  const theme = useTheme();
+  const styles = useMemo(() => createStyles(theme), [theme]);
+
+  return (
+    <Card style={styles.readyCard}>
+      <SectionLabel>Interview ready</SectionLabel>
+      <Text style={styles.readyTitle}>You&apos;re interview-ready for {roleTitle}</Text>
+      <ScoreArc label="of your roadmap done" size={180} value={100} variant="onSurface" />
+      <Text style={styles.readyBody}>
+        You finished {doneCount} {doneCount === 1 ? 'milestone' : 'milestones'}, and each one wrote
+        a CV bullet you can paste straight into an application.
+      </Text>
+      <Button label="Export my CV bullets" onPress={onExport} />
+    </Card>
   );
 }
 
@@ -543,6 +608,40 @@ const createStyles = (theme: Theme) =>
       paddingBottom: spacing.xl,
       paddingHorizontal: spacing.lg,
       paddingTop: spacing.lg,
+    },
+    headerTop: {
+      alignItems: 'center',
+      alignSelf: 'stretch',
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+    },
+    gearButton: {
+      alignItems: 'center',
+      height: minTouchTarget,
+      justifyContent: 'center',
+      // Pulls the gear to the block's edge without shrinking its target.
+      marginRight: -spacing.sm,
+      width: minTouchTarget,
+    },
+    readyCard: {
+      alignItems: 'center',
+      gap: spacing.md,
+    },
+    readyTitle: {
+      color: theme.colors.textPrimary,
+      fontFamily: typography.title.fontFamily,
+      fontSize: typography.title.fontSize,
+      fontWeight: typography.title.fontWeight,
+      letterSpacing: typography.title.letterSpacing,
+      lineHeight: typography.title.lineHeight,
+      textAlign: 'center',
+    },
+    readyBody: {
+      color: theme.colors.textSecondary,
+      fontFamily: typography.body.fontFamily,
+      fontSize: typography.body.fontSize,
+      lineHeight: typography.body.lineHeight,
+      textAlign: 'center',
     },
     roleTitle: {
       color: headerColors.text,

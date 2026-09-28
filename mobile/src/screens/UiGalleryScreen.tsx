@@ -18,6 +18,7 @@ import {
   TextField,
   type MilestoneItem,
 } from '../components/ui';
+import { BrandSplash } from '../components/BrandSplash';
 import { headerColors, radii, spacing, typography, type CategoryKey, type Theme } from '../theme/tokens';
 import { useTheme } from '../theme/useTheme';
 
@@ -207,6 +208,15 @@ export function UiGalleryScreen() {
             <Button label="Close" onPress={() => setSheetVisible(false)} variant="secondary" />
           </Sheet>
         </Section>
+
+        <Section title="BrandSplash">
+          <View style={styles.splashPreview}>
+            <BrandSplash message="Loading your saved roadmap" />
+          </View>
+          <View style={styles.splashPreview}>
+            <BrandSplash isError message="Saved data could not be read." />
+          </View>
+        </Section>
       </View>
     </ScrollView>
   );
@@ -275,5 +285,12 @@ const createStyles = (theme: Theme) =>
     },
     arcRow: {
       alignItems: 'center',
+    },
+    splashPreview: {
+      borderColor: theme.colors.border,
+      borderRadius: radii.lg,
+      borderWidth: 1,
+      height: 180,
+      overflow: 'hidden',
     },
   });
