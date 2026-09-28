@@ -2,6 +2,7 @@
   "expo": {
     "name": "Maven",
     "slug": "maven",
+    "icon": "./assets/maven-mark.png",
     "version": "0.1.0",
     "orientation": "portrait",
     "userInterfaceStyle": "light",
@@ -13,6 +14,10 @@
     "android": {
       "allowBackup": false,
       "package": "com.maven.app",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/maven-mark.png",
+        "backgroundColor": "#FDF8E9"
+      },
       "predictiveBackGestureEnabled": false
     },
     "extra": {
@@ -20,6 +25,18 @@
         "projectId": "0bce248e-277a-4699-ab5d-02c393fe165d"
       }
     },
-    "plugins": ["expo-secure-store"]
+    "plugins": [
+      "expo-secure-store",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/maven-mark.png",
+          "imageWidth": 220,
+          "backgroundColor": "#FDF8E9",
+          "dark": { "backgroundColor": "#FDF8E9" },
+          "resizeMode": "contain"
+        }
+      ]
+    ]
   }
 }

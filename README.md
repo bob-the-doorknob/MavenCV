@@ -45,6 +45,12 @@ npm test
 Purchases are disabled in Expo Go. Real purchases and the newly added
 SecureStore configuration require a rebuilt Expo development app.
 
+For the complete live staging walkthrough (Firebase/App Check, real Gemini,
+PDF extraction and store sandbox purchases), follow
+[Full demo setup](docs/full-demo-setup.md). The dedicated EAS `demo` profile
+rejects mock API configuration and missing staging values; it is not a
+production profile.
+
 `npm run check:backend` runs the backend TypeScript check and backend test suite
 without making a live Gemini request. `npm run start:backend` loads the root
 `.env` file when it exists.
@@ -62,6 +68,7 @@ needs verification on a simulator or phone.
 ## Roadmap API and frontend handoff
 
 All three AI routes (`/api/roadmap`, `/api/cv-bullet`, `/api/cv-profile`) require
+`X-Firebase-AppCheck: <verified App Check token>` from an allowlisted native app, plus
 `Authorization: Bearer <Firebase ID token>` from a signed-in user with a
 Firebase account. The mobile API client silently creates an anonymous account,
 stores its refresh token in OS SecureStore, caches ID tokens in memory, and includes
@@ -156,7 +163,7 @@ $body = @{
 Invoke-RestMethod `
   -Method Post `
   -Uri "http://localhost:8080/api/cv-bullet" `
-  -Headers @{ Authorization = "Bearer $env:TRAJECTORY_FIREBASE_ID_TOKEN" } `
+  -Headers @{ Authorization = "Bearer $env:TRAJECTORY_FIREBASE_ID_TOKEN"; 'X-Firebase-AppCheck' = $env:TRAJECTORY_APP_CHECK_TOKEN } `
   -ContentType "application/json" `
   -Body $body
 ```
@@ -169,7 +176,7 @@ Gemini key. It prints only pass or fail and does not require a Firebase token.
 
 Run `npm run smoke:backend` after starting the backend. It checks `/health`
 without credentials. To check the protected roadmap, set
-`TRAJECTORY_FIREBASE_ID_TOKEN` in the current process environment; the script
+`TRAJECTORY_FIREBASE_ID_TOKEN` and `TRAJECTORY_APP_CHECK_TOKEN` in the current process environment; the script
 does not print it. Set `TRAJECTORY_API_URL` to check a deployed endpoint.
 
 ## Cloud Run
@@ -195,9 +202,18 @@ traffic, use Cloud Run ingress `internal-and-cloud-load-balancing` behind an
 external Application Load Balancer with a Cloud Armor per-IP throttle. Cloud Run
 allows platform-level unauthenticated invocation because Express verifies
 Firebase ID tokens; the restricted ingress prevents direct public bypass.
-Firebase App Check is a further abuse-control step before broad launch.
+Firebase App Check is now enforced on all AI routes. Set `FIREBASE_APP_CHECK_APP_IDS`
+to the comma-separated Firebase application IDs for your native apps. Missing or
+invalid App Check credentials return 403 before quota use or generation.
+See [App Check and consent setup](docs/app-check-and-consent.md) before deploying;
+older clients without attestation will stop working with this backend.
 
 ## Security
+
+Backend request logs use a fixed, content-free JSON schema with generated request
+IDs. GitHub Actions runs tests, typechecks, secret scanning, dependency audit and
+Docker checks without production credentials. See [logging and CI](docs/logging-and-ci.md)
+for verification limits and the branch-protection/alerting settings still needed.
 
 The mobile app never imports a Gemini SDK or receives `GEMINI_API_KEY`. All AI
 requests are routed through `backend/`. Local environment files are ignored

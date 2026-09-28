@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('./auth', () => ({ getAuthToken: async () => 'test-id-token' }));
+vi.mock('./appCheck', () => ({ getAppCheckToken: async () => 'test-app-check-token' }));
+vi.mock('./privacy', () => ({ loadConsent: async () => undefined, hasAiConsent: () => true }));
 
 import {
   ApiError,

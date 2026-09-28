@@ -4,12 +4,12 @@ $apiUrl = if ($env:TRAJECTORY_API_URL) { $env:TRAJECTORY_API_URL.TrimEnd('/') } 
 $health = Invoke-RestMethod -Method Get -Uri "$apiUrl/health"
 if ($health.status -ne 'ok') { throw 'Backend health check failed.' }
 
-if (-not $env:TRAJECTORY_FIREBASE_ID_TOKEN) {
-  Write-Host 'Health passed. Set TRAJECTORY_FIREBASE_ID_TOKEN to test protected endpoints.'
+if (-not $env:TRAJECTORY_FIREBASE_ID_TOKEN -or -not $env:TRAJECTORY_APP_CHECK_TOKEN) {
+  Write-Host 'Health passed. Set TRAJECTORY_FIREBASE_ID_TOKEN and TRAJECTORY_APP_CHECK_TOKEN to test protected endpoints.'
   exit 0
 }
 
-$headers = @{ Authorization = "Bearer $($env:TRAJECTORY_FIREBASE_ID_TOKEN)" }
+$headers = @{ Authorization = "Bearer $($env:TRAJECTORY_FIREBASE_ID_TOKEN)"; 'X-Firebase-AppCheck' = $env:TRAJECTORY_APP_CHECK_TOKEN }
 $body = @{
   experience = 'Built two TypeScript APIs and used PostgreSQL in coursework.'
   targetRole = @{ title = 'Backend Engineer' }

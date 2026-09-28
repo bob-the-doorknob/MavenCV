@@ -1,0 +1,113 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    - cron: '23 3 * * 1'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  checks:
+    name: TypeScript, tests and production config
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22'
+          package-manager-cache: false
+      - run: npm ci
+      - run: npm run typecheck
+      - name: Backend tests
+        run: npm test --workspace @trajectory/backend
+      - name: Mobile tests (native boundaries mocked)
+        run: npm test --workspace @trajectory/mobile
+      - name: Production configuration contract (synthetic public values only)
+        run: node node_modules/vitest/vitest.mjs run mobile/app.config.test.ts
+      - name: Audit gate regression tests
+        run: node --test scripts/check-audit.test.mjs
+
+  secrets:
+    name: Secret scan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Download checksum-pinned Gitleaks
+        working-directory: ${{ runner.temp }}
+        run: |
+          curl --fail --silent --show-error --location --retry 3 \
+            https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz \
+            --output gitleaks.tar.gz
+          echo '551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb  gitleaks.tar.gz' | sha256sum --check --strict
+          tar -xzf gitleaks.tar.gz gitleaks
+      - name: Scan checked-out history without exposing matched secrets
+        run: '"$RUNNER_TEMP/gitleaks" git --redact=100 --no-banner --log-opts="--all" .'
+
+  audit:
+    name: Dependency audit
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22'
+          package-manager-cache: false
+      - name: Report all severities; block high, critical and audit failures
+        run: |
+          audit_status=0
+          npm audit --package-lock-only --ignore-scripts --json > "$RUNNER_TEMP/npm-audit.json" || audit_status=$?
+          node scripts/check-audit.mjs "$RUNNER_TEMP/npm-audit.json" "$audit_status"
+      - name: Preserve audit report even when the gate fails
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: dependency-audit
+          path: ${{ runner.temp }}/npm-audit.json
+          if-no-files-found: error
+          retention-days: 14
+
+  docker:
+    name: Backend Docker build and health check
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Build backend image (no credentials, no push)
+        run: docker build --tag maven-backend:ci --file backend/Dockerfile .
+      - name: Run as non-root and verify health without provider credentials
+        run: |
+          container_id=$(docker run --detach --publish 127.0.0.1:8080:8080 maven-backend:ci)
+          trap 'docker rm --force "$container_id" >/dev/null' EXIT
+          test "$(docker exec "$container_id" id -u)" != '0'
+          for attempt in {1..15}; do
+            if curl --fail --silent http://127.0.0.1:8080/health | \
+              node -e 'let s=""; process.stdin.on("data", c => s += c); process.stdin.on("end", () => { try { process.exit(JSON.parse(s).status === "ok" ? 0 : 1); } catch { process.exit(1); } });'; then
+              exit 0
+            fi
+            sleep 2
+          done
+          exit 1

@@ -123,6 +123,7 @@ const isTarget = (value: unknown): value is PersistedTarget =>
   isOptional(value.lastCheckInAt, isString) &&
   isOptional(value.targetDate, isString) &&
   isOptional(value.schedulePace, isSchedulePace) &&
+  isOptional(value.readyCelebratedAt, isString) &&
   Array.isArray(value.roadmap) &&
   value.roadmap.every(isRoadmapTask);
 
@@ -252,6 +253,8 @@ interface AppState extends PersistedAppState {
   /** Keeps at most MAX_FOCUS_TASKS ids, dropping unknown and already-done tasks. */
   setFocusTasks: (taskIds: string[]) => void;
   recordCheckIn: () => void;
+  /** Stamps the active target so the 100% celebration only ever fires once. */
+  markReadyCelebrated: () => void;
   addCvEntry: (entry: AddCvEntryInput) => string;
   updateCvEntry: (id: string, updates: Partial<Pick<CvEntry, 'status' | 'text' | 'suggestions'>>) => void;
   resetAll: () => void;
@@ -528,6 +531,15 @@ export const useAppStore = create<AppState>()(
             ...target,
             lastCheckInAt: new Date().toISOString(),
           })),
+        })),
+
+      markReadyCelebrated: () =>
+        set((state) => ({
+          targets: mapActiveTarget(state.targets, state.activeTargetId, (target) =>
+            target.readyCelebratedAt
+              ? target
+              : { ...target, readyCelebratedAt: new Date().toISOString() },
+          ),
         })),
 
       addCvEntry: (entry) => {

@@ -1,5 +1,7 @@
 import { Router, type Request, type Response } from 'express';
 import { ProviderRateLimitError } from '../services/gemini.js';
+import { markRequestError, type ErrorCategory } from '../observability/requestLog.js';
+import { AppCheckError, verifyAppCheck, type AppCheckVerifier } from '../security/appCheck.js';
 
 import { publicTargetRoleCategories } from '../data/targets.js';
 import { authenticateAuthorization, AuthenticationError, type RequestAuthenticator } from '../security/auth.js';
@@ -26,19 +28,30 @@ export interface AiRouterDependencies {
   generateCvProfile?: CvProfileGenerator;
   generateRoadmap?: RoadmapGenerator;
   authenticate?: RequestAuthenticator;
+  attest?: AppCheckVerifier;
   consumeQuota?: AiRateLimiter;
 }
 
 interface ApiErrorBody { error: { code: string; message: string } }
 
-const sendError = (response: Response, status: number, code: string, message: string): void => {
+const errorCategories: Readonly<Record<string, ErrorCategory>> = {
+  RATE_LIMIT_EXCEEDED: 'application_quota', APP_CHECK_REQUIRED: 'app_check', AUTHENTICATION_REQUIRED: 'authentication',
+  INVALID_ROADMAP_INPUT: 'validation', INVALID_CV_BULLET_INPUT: 'validation', INVALID_CV_PROFILE_INPUT: 'validation',
+  SERVICE_UNAVAILABLE: 'quota_store_unavailable', ROADMAP_GENERATION_FAILED: 'generation_failed',
+  CV_BULLET_GENERATION_FAILED: 'generation_failed', CV_PROFILE_GENERATION_FAILED: 'generation_failed',
+  INTERNAL_ERROR: 'internal_error',
+};
+const sendError = (response: Response, status: number, code: string, message: string, category?: ErrorCategory): void => {
+  markRequestError(response, category ?? errorCategories[code] ?? 'internal_error');
   response.status(status).json({ error: { code, message } });
 };
 
 const handleError = (error: unknown, response: Response): void => {
   if (error instanceof ProviderRateLimitError) {
     response.set('Retry-After', '60');
-    sendError(response, 429, 'RATE_LIMIT_EXCEEDED', 'AI capacity is temporarily exhausted. Please try again later.');
+    sendError(response, 429, 'RATE_LIMIT_EXCEEDED', 'AI capacity is temporarily exhausted. Please try again later.', 'provider_quota');
+  } else if (error instanceof AppCheckError) {
+    sendError(response, 403, 'APP_CHECK_REQUIRED', 'App verification is required.');
   } else if (error instanceof AuthenticationError) {
     sendError(response, 401, 'AUTHENTICATION_REQUIRED', 'Authentication is required.');
   } else if (error instanceof RoadmapValidationError) {
@@ -65,6 +78,7 @@ export const createAiRouter = ({
   generateCvProfile: generateProfile = generateCvProfile,
   generateRoadmap: generateTasks = generateRoadmap,
   authenticate = authenticateAuthorization,
+  attest = verifyAppCheck,
   consumeQuota = consumeAiQuota,
 }: AiRouterDependencies = {}): Router => {
   const router = Router();
@@ -81,6 +95,7 @@ export const createAiRouter = ({
     response: Response<TResult | ApiErrorBody>,
   ): Promise<void> => {
     try {
+      await attest(request.headers['x-firebase-appcheck']);
       const user = await authenticate(request.headers.authorization);
       const input = normalize(request.body);
       const decision = await consumeQuota(user.uid);

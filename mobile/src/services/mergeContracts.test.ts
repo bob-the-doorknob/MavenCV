@@ -1,6 +1,8 @@
 import { afterEach, expect, it, vi } from 'vitest';
 
 vi.mock('./auth', () => ({ getAuthToken: async () => 'test-token' }));
+vi.mock('./appCheck', () => ({ getAppCheckToken: async () => 'test-app-check-token' }));
+vi.mock('./privacy', () => ({ loadConsent: async () => undefined, hasAiConsent: () => true }));
 import { generateRoadmap, mapRoadmapResponse } from './api';
 import { normalizeRoadmapInput } from '../../../backend/src/services/roadmap';
 import { calculateReadiness } from '../utils/readiness';

@@ -1,7 +1,9 @@
 import { useMemo, useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Button, Sheet } from '../../components/ui';
+import { LegalLinks } from '../../components/PrivacyControls';
 import { presentProPaywall, restorePurchases } from '../../services/revenueCat';
 import { useProStatus } from '../../services/useProStatus';
 import { spacing, typography, type Theme } from '../../theme/tokens';
@@ -19,7 +21,10 @@ interface ProUpsellSheetProps {
 
 export function ProUpsellSheet({ visible, onClose }: ProUpsellSheetProps) {
   const theme = useTheme();
-  const styles = useMemo(() => createStyles(theme), [theme]);
+  const { height } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
+  const availableHeight = Math.max(100, height - insets.top - insets.bottom - 180);
+  const styles = useMemo(() => createStyles(theme, availableHeight), [theme, availableHeight]);
   const { refresh } = useProStatus();
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
@@ -40,6 +45,7 @@ export function ProUpsellSheet({ visible, onClose }: ProUpsellSheetProps) {
 
   return (
     <Sheet onClose={onClose} title="Export all bullets is a Pro feature" visible={visible}>
+      <ScrollView style={styles.scroll} contentContainerStyle={styles.list}>
       <Text style={styles.body}>
         You can still copy bullets one at a time. Pro adds the bulk export and a few other things:
       </Text>
@@ -52,14 +58,17 @@ export function ProUpsellSheet({ visible, onClose }: ProUpsellSheetProps) {
       </View>
       {message ? <Text accessibilityRole="alert" style={styles.body}>{message}</Text> : null}
       <Button disabled={busy} label="Upgrade" onPress={() => void handleUpgrade()} />
+      <LegalLinks />
       <Button disabled={busy} label="Restore purchases" onPress={() => void handleRestore()} variant="ghost" />
       <Button label="Not now" onPress={onClose} variant="ghost" />
+      </ScrollView>
     </Sheet>
   );
 }
 
-const createStyles = (theme: Theme) =>
+const createStyles = (theme: Theme, availableHeight: number) =>
   StyleSheet.create({
+    scroll: { maxHeight: availableHeight },
     body: {
       color: theme.colors.textSecondary,
       fontFamily: typography.body.fontFamily,

@@ -4,6 +4,8 @@ import type { RoadmapTask, TaskStep } from '../types';
 import { createId } from '../utils/id';
 import { clampEstimatedWeeks } from '../utils/schedule';
 import { getAuthToken } from './auth';
+import { getAppCheckToken } from './appCheck';
+import { hasAiConsent, loadConsent } from './privacy';
 
 /** normalizeRoadmapInput rejects an experience longer than this. */
 const MAX_EXPERIENCE_LENGTH = 4_000;
@@ -14,7 +16,7 @@ const ROADMAP_TIMEOUT_MS = 120_000;
 const CV_BULLET_TIMEOUT_MS = 120_000;
 const EXTRACT_PROFILE_TIMEOUT_MS = 120_000;
 
-export type ApiErrorKind = 'rate_limited' | 'network' | 'server' | 'invalid_response' | 'auth';
+export type ApiErrorKind = 'rate_limited' | 'network' | 'server' | 'invalid_response' | 'auth' | 'consent_required';
 
 export class ApiError extends Error {
   public readonly kind: ApiErrorKind;
@@ -62,6 +64,7 @@ const requireBaseUrl = (): string => {
  */
 const ERROR_KINDS_BY_CODE: Readonly<Record<string, ApiErrorKind>> = {
   AUTHENTICATION_REQUIRED: 'auth',
+  APP_CHECK_REQUIRED: 'auth',
   RATE_LIMIT_EXCEEDED: 'rate_limited',
   ROADMAP_GENERATION_FAILED: 'server',
   CV_BULLET_GENERATION_FAILED: 'server',
@@ -104,9 +107,18 @@ const sendRequest = async (
   init: Pick<RequestInit, 'headers' | 'body'>,
   timeoutMs: number,
 ): Promise<unknown> => {
+  await loadConsent();
+  const requireConsent = () => {
+    if (!hasAiConsent()) throw new ApiError('consent_required', 'Review AI sharing in your privacy controls before continuing.');
+  };
+  requireConsent();
   const baseUrl = requireBaseUrl();
+  let appCheckToken: string;
+  try { appCheckToken = await getAppCheckToken(); }
+  catch { throw new ApiError('auth', 'App verification failed. Use a configured development or store build.'); }
   const token = await getAuthToken();
   if (!token) throw new ApiError('auth', 'Unable to authenticate. Check your connection and Firebase configuration.');
+  requireConsent();
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
@@ -117,6 +129,7 @@ const sendRequest = async (
       headers: {
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
         ...init.headers,
+        'X-Firebase-AppCheck': appCheckToken,
       },
       signal: controller.signal,
     });
