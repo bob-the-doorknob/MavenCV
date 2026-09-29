@@ -60,7 +60,11 @@ export function RoleScreen({
       style={styles.flex}
     >
       <View style={[styles.screen, { paddingTop: insets.top }]}>
-        <ScrollView contentContainerStyle={[styles.content, { paddingBottom: insets.bottom }]}>
+        <ScrollView
+          contentContainerStyle={[styles.content, { paddingBottom: insets.bottom }]}
+          keyboardDismissMode="on-drag"
+          keyboardShouldPersistTaps="handled"
+        >
           <View style={styles.headerBlock}>
             <SectionLabel>Step 1 of 3</SectionLabel>
             <Text style={styles.title}>What role are you aiming for?</Text>

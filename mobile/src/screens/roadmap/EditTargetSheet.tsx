@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { StyleSheet, Text, View } from 'react-native';
 
 import { Button, Chip, SectionLabel, Sheet, TextArea, TextField } from '../../components/ui';
 import { levelLabels, resolveRoleTitle, type Level } from '../../data/roles';
@@ -21,10 +20,7 @@ interface EditTargetSheetProps {
 
 export function EditTargetSheet({ visible, onClose, target }: EditTargetSheetProps) {
   const theme = useTheme();
-  const { height } = useWindowDimensions();
-  const insets = useSafeAreaInsets();
-  const availableHeight = Math.max(160, height - insets.top - insets.bottom - 220);
-  const styles = useMemo(() => createStyles(theme, availableHeight), [theme, availableHeight]);
+  const styles = useMemo(() => createStyles(theme), [theme]);
 
   const [level, setLevel] = useState<Level>(target?.level ?? 'internship');
   const [employer, setEmployer] = useState(target?.employer ?? '');
@@ -56,7 +52,7 @@ export function EditTargetSheet({ visible, onClose, target }: EditTargetSheetPro
 
   return (
     <Sheet onClose={onClose} title="Edit target" visible={visible}>
-      <ScrollView contentContainerStyle={styles.list} style={styles.scroll}>
+      <View style={styles.list}>
         <Text style={styles.body}>
           {resolveRoleTitle(target.roleId, target.customTitle)}. The role itself cannot be changed —
           add another target for a different role.
@@ -101,14 +97,13 @@ export function EditTargetSheet({ visible, onClose, target }: EditTargetSheetPro
         </Text>
 
         <Button disabled={!canSave} label="Save changes" onPress={save} />
-      </ScrollView>
+      </View>
     </Sheet>
   );
 }
 
-const createStyles = (theme: Theme, availableHeight: number) =>
+const createStyles = (theme: Theme) =>
   StyleSheet.create({
-    scroll: { maxHeight: availableHeight },
     list: {
       gap: spacing.lg,
     },

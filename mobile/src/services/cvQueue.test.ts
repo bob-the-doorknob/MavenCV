@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('./auth', () => ({ getAuthToken: async () => 'test-token' }));
 vi.mock('./appCheck', () => ({ getAppCheckToken: async () => 'test-app-check-token' }));
 
@@ -30,7 +30,7 @@ vi.mock('./api', async (importOriginal) => {
 import type { RoadmapTask } from '../types';
 import { useAppStore } from '../store/useAppStore';
 import { ApiError, generateCvBullet } from './api';
-import { processPendingCvEntries, retryCvEntry, setCvQueueActive } from './cvQueue';
+import { processPendingCvEntries, repairLegacyMockCvEntries, retryCvEntry, setCvQueueActive } from './cvQueue';
 
 const mockedGenerateCvBullet = vi.mocked(generateCvBullet);
 
@@ -77,6 +77,60 @@ beforeEach(() => {
   setCvQueueActive(true);
   useAppStore.getState().resetAll();
   mockedGenerateCvBullet.mockReset();
+});
+
+afterEach(() => vi.unstubAllEnvs());
+
+describe('repairLegacyMockCvEntries', () => {
+  it('repairs an old demo sentence while keeping its entered number for review', () => {
+    vi.stubEnv('EXPO_PUBLIC_USE_MOCK_API', 'true');
+    useAppStore.getState().addTarget({ ...baseTargetInput, roadmap: [task()] });
+    useAppStore.getState().completeTask('task-1', 'I build');
+    const [entry] = useAppStore.getState().cvEntries;
+    useAppStore.getState().updateCvEntry(entry?.id as string, {
+      status: 'ready',
+      text: 'Completed Build 1 portfolio project by 3, based on: I build.',
+    });
+
+    repairLegacyMockCvEntries();
+
+    const [repaired] = useAppStore.getState().cvEntries;
+    expect(repaired?.text).toBe('Built 1 portfolio project.');
+    expect(repaired?.suggestions?.[0]).toContain('an earlier draft said 3');
+  });
+
+  it('leaves edited bullets alone', () => {
+    vi.stubEnv('EXPO_PUBLIC_USE_MOCK_API', 'true');
+    useAppStore.getState().addTarget({ ...baseTargetInput, roadmap: [task()] });
+    useAppStore.getState().completeTask('task-1', 'I build');
+    const [entry] = useAppStore.getState().cvEntries;
+    useAppStore.getState().updateCvEntry(entry?.id as string, {
+      status: 'ready',
+      text: 'Built 1 portfolio project.',
+    });
+
+    repairLegacyMockCvEntries();
+
+    expect(useAppStore.getState().cvEntries[0]?.text).toBe('Built 1 portfolio project.');
+  });
+
+  it('repairs a saved demo draft after the milestone text has changed', () => {
+    vi.stubEnv('EXPO_PUBLIC_USE_MOCK_API', 'true');
+    useAppStore.getState().addTarget({ ...baseTargetInput, roadmap: [task()] });
+    useAppStore.getState().completeTask('task-1', 'I built a chatbot and tested 3 questions.');
+    const [entry] = useAppStore.getState().cvEntries;
+    useAppStore.getState().updateCvEntry(entry?.id as string, {
+      status: 'ready',
+      text: 'Completed Build one AI chatbot that answers question from a PDF by 3, based on: I build.',
+      suggestions: ['Add a specific number — how many, how much, or over what time period.'],
+    });
+
+    repairLegacyMockCvEntries();
+
+    const [repaired] = useAppStore.getState().cvEntries;
+    expect(repaired?.text).toBe('Built a chatbot and tested 3 questions.');
+    expect(repaired?.suggestions?.[0]).toContain('an earlier draft said 3');
+  });
 });
 
 describe('processPendingCvEntries', () => {

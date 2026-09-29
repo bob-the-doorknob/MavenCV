@@ -83,6 +83,7 @@ const createStyles = (theme: Theme) =>
       alignSelf: 'center',
       backgroundColor: theme.colors.textPrimary,
       borderRadius: radii.pill,
+      maxWidth: '92%',
       paddingHorizontal: spacing.lg,
       paddingVertical: spacing.sm,
       position: 'absolute',
@@ -105,6 +106,7 @@ const createStyles = (theme: Theme) =>
     },
     text: {
       color: theme.colors.background,
+      flexShrink: 1,
       fontFamily: typography.caption.fontFamily,
       fontSize: typography.caption.fontSize,
       fontWeight: '600',

@@ -18,11 +18,11 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import Animated from 'react-native-reanimated';
 import Svg, { Path } from 'react-native-svg';
 
-import { Button, Card, ConfirmationBanner, EmptyState, ShimmerBar, StatusNode } from '../../components/ui';
+import { Button, Card, ConfirmationBanner, EmptyState, Sheet, ShimmerBar, StatusNode } from '../../components/ui';
 import { usePressScale } from '../../components/ui/usePressScale';
 import { levelLabels, resolveRoleTitle } from '../../data/roles';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
-import { retryCvEntry, processPendingCvEntries, setCvQueueActive, useCvQueueStatus } from '../../services/cvQueue';
+import { repairLegacyMockCvEntries, retryCvEntry, processPendingCvEntries, setCvQueueActive, useCvQueueStatus } from '../../services/cvQueue';
 import { useProStatus } from '../../services/useProStatus';
 import { useActiveTarget, useAppStore } from '../../store/useAppStore';
 import { minTouchTarget, radii, spacing, typography, type Theme } from '../../theme/tokens';
@@ -32,7 +32,6 @@ import type { CvEntry, RoadmapTask } from '../../types';
 import { AddNumberSheet } from './AddNumberSheet';
 import { EditBulletSheet } from './EditBulletSheet';
 import { ProUpsellSheet } from './ProUpsellSheet';
-import { PrivacyControls } from '../../components/PrivacyControls';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 
@@ -52,6 +51,7 @@ export function CvVaultScreen() {
   const pendingUndo = useAppStore((state) => state.pendingUndo);
   useFocusEffect(useCallback(() => {
     setCvQueueActive(true);
+    repairLegacyMockCvEntries();
     void processPendingCvEntries();
     return () => setCvQueueActive(false);
   }, []));
@@ -61,6 +61,7 @@ export function CvVaultScreen() {
   const [editEntry, setEditEntry] = useState<CvEntry | null>(null);
   const [numberEntry, setNumberEntry] = useState<CvEntry | null>(null);
   const [upsellVisible, setUpsellVisible] = useState(false);
+  const [menuEntry, setMenuEntry] = useState<CvEntry | null>(null);
   const bannerTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(
@@ -184,14 +185,21 @@ export function CvVaultScreen() {
               {entries.length === 1 ? 'bullet' : 'bullets'}
             </Text>
           </View>
-          <View style={styles.headerActions}>
-            <CopyAllButton onPress={copyAll} />
-            <Button label="Share all" onPress={() => void shareAll()} variant="secondary" />
-          </View>
+          {/* One finished bullet is already worth exporting. */}
+          {readyCount > 0 ? (
+            <View style={styles.headerActions}>
+              <CopyAllButton onPress={copyAll} />
+              <Button
+                label="Share all"
+                onPress={() => void shareAll()}
+                style={styles.exportButton}
+                variant="secondary"
+              />
+            </View>
+          ) : null}
         </View>
 
         {queueMessage ? <Text accessibilityRole="alert" style={styles.subtitle}>{queueMessage}</Text> : null}
-        <PrivacyControls />
         {entries.length === 0 ? (
           <EmptyState
             message="Finish a milestone and Maven writes your first CV bullet here."
@@ -204,11 +212,9 @@ export function CvVaultScreen() {
               entry={entry}
               onAddNumber={() => setNumberEntry(entry)}
               onCopy={() => copyOne(entry.text)}
-              onEdit={() => setEditEntry(entry)}
               onOpenTask={() => navigation.navigate('TaskDetail', { taskId: entry.taskId })}
-              onDelete={() => confirmDelete(entry)}
+              onMore={() => setMenuEntry(entry)}
               onRetry={() => retryCvEntry(entry.id)}
-              onShare={() => void shareOne(entry.text)}
               taskTitle={taskFor(entry.taskId)?.title ?? 'a deleted milestone'}
             />
           ))
@@ -224,9 +230,10 @@ export function CvVaultScreen() {
             />
           </Svg>
           <Text style={styles.footerText}>
-            Bullets only use numbers you gave. Nothing is invented.
+            Review each bullet before sharing. Numbers only come from you.
           </Text>
         </View>
+        <PrivacyRow onPress={() => navigation.navigate('Settings')} />
       </ScrollView>
 
       {banner ? (
@@ -242,6 +249,35 @@ export function CvVaultScreen() {
         message={pendingUndo?.kind === 'cvEntry' ? pendingUndo.message : null}
         onDismiss={() => useAppStore.getState().clearPendingUndo()}
       />
+
+      <Sheet onClose={() => setMenuEntry(null)} title="Bullet actions" visible={menuEntry !== null}>
+        <Button
+          label="Share"
+          onPress={() => {
+            const entry = menuEntry;
+            setMenuEntry(null);
+            if (entry) void shareOne(entry.text);
+          }}
+          variant="secondary"
+        />
+        <Button
+          label="Edit"
+          onPress={() => {
+            setEditEntry(menuEntry);
+            setMenuEntry(null);
+          }}
+          variant="secondary"
+        />
+        <Button
+          label="Delete"
+          onPress={() => {
+            const entry = menuEntry;
+            setMenuEntry(null);
+            if (entry) confirmDelete(entry);
+          }}
+          variant="danger"
+        />
+      </Sheet>
 
       <EditBulletSheet entry={editEntry} onClose={() => setEditEntry(null)} visible={editEntry !== null} />
       <AddNumberSheet
@@ -260,7 +296,7 @@ function CopyAllButton({ onPress }: { onPress: () => void }) {
   const press = usePressScale();
 
   return (
-    <Animated.View style={press.style}>
+    <Animated.View style={[press.style, styles.exportButton]}>
       <Pressable
         accessibilityLabel="Copy all bullets. Pro feature."
         accessibilityRole="button"
@@ -284,11 +320,9 @@ interface BulletCardProps {
   taskTitle: string;
   onOpenTask: () => void;
   onCopy: () => void;
-  onEdit: () => void;
   onAddNumber: () => void;
   onRetry: () => void;
-  onShare: () => void;
-  onDelete: () => void;
+  onMore: () => void;
 }
 
 function BulletCard({
@@ -296,11 +330,9 @@ function BulletCard({
   taskTitle,
   onOpenTask,
   onCopy,
-  onEdit,
   onAddNumber,
   onRetry,
-  onShare,
-  onDelete,
+  onMore,
 }: BulletCardProps) {
   const theme = useTheme();
   const styles = useMemo(() => createStyles(theme), [theme]);
@@ -320,8 +352,9 @@ function BulletCard({
       ) : entry.status === 'failed' ? (
         <View style={styles.block}>
           <Text style={styles.bulletText}>Couldn&apos;t write this one</Text>
-          <View style={styles.actions}>
-            <Button label="Retry" onPress={onRetry} variant="secondary" />
+          <View style={styles.actionRow}>
+            <Button label="Retry" onPress={onRetry} style={styles.actionButton} />
+            <MoreButton onPress={onMore} />
           </View>
         </View>
       ) : (
@@ -341,24 +374,85 @@ function BulletCard({
             ))}
           </Text>
 
-          {wantsNumber ? (
-            <>
-              {entry.suggestions?.length ? (
-                <Text style={styles.suggestion}>{entry.suggestions[0]}</Text>
-              ) : null}
-              <Button label="Add number" onPress={onAddNumber} />
-            </>
-          ) : (
-            <View style={styles.actions}>
-              <CopyButton onPress={onCopy} />
-              <Button label="Share" onPress={onShare} variant="secondary" />
-              <Button label="Edit" onPress={onEdit} variant="ghost" />
-              <Button label="Delete" onPress={onDelete} variant="ghost" />
-            </View>
-          )}
+          {entry.suggestions?.length ? (
+            <Text style={styles.suggestion}>{entry.suggestions[0]}</Text>
+          ) : null}
+
+          {/* One filled action; everything else lives behind the dots. */}
+          <View style={styles.actionRow}>
+            {wantsNumber ? (
+              <Button label="Add number" onPress={onAddNumber} style={styles.actionButton} />
+            ) : (
+              <Button label="Copy" onPress={onCopy} style={styles.actionButton} />
+            )}
+            <MoreButton onPress={onMore} />
+          </View>
         </View>
       )}
     </Card>
+  );
+}
+
+/** A quiet way through to the controls, which now live in Settings. */
+function PrivacyRow({ onPress }: { onPress: () => void }) {
+  const theme = useTheme();
+  const styles = useMemo(() => createStyles(theme), [theme]);
+  const press = usePressScale();
+
+  return (
+    <Animated.View style={press.style}>
+      <Pressable
+        accessibilityHint="Opens Settings"
+        accessibilityLabel="Privacy and AI"
+        accessibilityRole="button"
+        android_ripple={{ color: theme.colors.border }}
+        onPress={onPress}
+        onPressIn={press.onPressIn}
+        onPressOut={press.onPressOut}
+        style={styles.privacyRow}
+      >
+        <Text style={styles.privacyLabel}>Privacy & AI</Text>
+        <Svg fill="none" height={18} viewBox="0 0 24 24" width={18}>
+          <Path
+            d="M9 5 L16 12 L9 19"
+            stroke={theme.colors.textMuted}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth={2}
+          />
+        </Svg>
+      </Pressable>
+    </Animated.View>
+  );
+}
+
+/** Three dots: everything that is not the card's one primary action. */
+function MoreButton({ onPress }: { onPress: () => void }) {
+  const theme = useTheme();
+  const styles = useMemo(() => createStyles(theme), [theme]);
+  const press = usePressScale();
+
+  return (
+    <Animated.View style={press.style}>
+      <Pressable
+        accessibilityLabel="More actions for this bullet"
+        accessibilityRole="button"
+        android_ripple={{ borderless: true, color: theme.colors.border }}
+        onPress={onPress}
+        onPressIn={press.onPressIn}
+        onPressOut={press.onPressOut}
+        style={styles.moreButton}
+      >
+        <Svg fill="none" height={20} viewBox="0 0 24 24" width={20}>
+          <Path
+            d="M12 5.5 V5.6 M12 12 V12.1 M12 18.4 V18.5"
+            stroke={theme.colors.textSecondary}
+            strokeLinecap="round"
+            strokeWidth={3}
+          />
+        </Svg>
+      </Pressable>
+    </Animated.View>
   );
 }
 
@@ -387,37 +481,6 @@ function TaskLabelRow({ title, onPress }: { title: string; onPress: () => void }
   );
 }
 
-function CopyButton({ onPress }: { onPress: () => void }) {
-  const theme = useTheme();
-  const styles = useMemo(() => createStyles(theme), [theme]);
-  const press = usePressScale();
-
-  return (
-    <Animated.View style={press.style}>
-      <Pressable
-        accessibilityLabel="Copy bullet"
-        accessibilityRole="button"
-        android_ripple={{ color: theme.colors.border }}
-        onPress={onPress}
-        onPressIn={press.onPressIn}
-        onPressOut={press.onPressOut}
-        style={styles.copyButton}
-      >
-        <Svg fill="none" height={16} viewBox="0 0 24 24" width={16}>
-          <Path
-            d="M9 9 H19 V19 H9 Z M5 15 V5 H15"
-            stroke={theme.colors.textPrimary}
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth={2}
-          />
-        </Svg>
-        <Text style={styles.copyButtonLabel}>Copy</Text>
-      </Pressable>
-    </Animated.View>
-  );
-}
-
 const createStyles = (theme: Theme) =>
   StyleSheet.create({
     screen: {
@@ -430,17 +493,15 @@ const createStyles = (theme: Theme) =>
     },
     header: {
       alignItems: 'flex-start',
-      flexDirection: 'row',
-      gap: spacing.md,
-      justifyContent: 'space-between',
-      marginBottom: spacing.sm,
+      gap: spacing.xs,
+      marginBottom: spacing.md,
     },
     headerActions: {
-      alignItems: 'flex-end',
+      flexDirection: 'row',
       gap: spacing.sm,
     },
+    exportButton: { flex: 1 },
     headerCopy: {
-      flex: 1,
       gap: spacing.xs,
     },
     title: {
@@ -461,9 +522,11 @@ const createStyles = (theme: Theme) =>
       alignItems: 'center',
       backgroundColor: theme.colors.primaryButton,
       borderRadius: radii.md,
+      flex: 1,
       flexDirection: 'row',
       gap: spacing.sm,
-      minHeight: minTouchTarget,
+      justifyContent: 'center',
+      minHeight: minTouchTarget + 6,
       paddingHorizontal: spacing.md,
     },
     copyAllLabel: {
@@ -473,13 +536,13 @@ const createStyles = (theme: Theme) =>
       fontWeight: '600',
     },
     proBadge: {
-      backgroundColor: theme.colors.accent,
+      backgroundColor: theme.colors.onPrimaryButton,
       borderRadius: radii.pill,
       paddingHorizontal: 6,
       paddingVertical: 2,
     },
     proBadgeLabel: {
-      color: theme.colors.onAccent,
+      color: theme.colors.primaryButton,
       fontFamily: typography.sectionLabel.fontFamily,
       fontSize: 10,
       fontWeight: '600',
@@ -488,6 +551,29 @@ const createStyles = (theme: Theme) =>
     cardNeedsNumber: {
       backgroundColor: theme.colors.accentMuted,
       borderColor: theme.colors.accent,
+    },
+    privacyRow: {
+      alignItems: 'center',
+      borderColor: theme.colors.border,
+      borderRadius: radii.lg,
+      borderWidth: 1,
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      minHeight: minTouchTarget,
+      paddingHorizontal: spacing.lg,
+      paddingVertical: spacing.sm,
+    },
+    privacyLabel: {
+      color: theme.colors.textSecondary,
+      fontFamily: typography.rowTitle.fontFamily,
+      fontSize: typography.caption.fontSize,
+      fontWeight: '600',
+    },
+    moreButton: {
+      alignItems: 'center',
+      height: minTouchTarget,
+      justifyContent: 'center',
+      width: minTouchTarget,
     },
     taskRow: {
       alignItems: 'center',
@@ -505,7 +591,7 @@ const createStyles = (theme: Theme) =>
     },
     block: {
       gap: spacing.md,
-      marginTop: spacing.sm,
+      marginTop: spacing.md,
     },
     bulletText: {
       color: theme.colors.textPrimary,
@@ -537,28 +623,11 @@ const createStyles = (theme: Theme) =>
       fontSize: typography.caption.fontSize,
       lineHeight: typography.caption.lineHeight,
     },
-    actions: {
-      alignItems: 'center',
+    actionRow: {
       flexDirection: 'row',
       gap: spacing.sm,
     },
-    copyButton: {
-      alignItems: 'center',
-      backgroundColor: theme.colors.surface,
-      borderColor: theme.colors.border,
-      borderRadius: radii.md,
-      borderWidth: 1,
-      flexDirection: 'row',
-      gap: spacing.sm,
-      minHeight: minTouchTarget,
-      paddingHorizontal: spacing.lg,
-    },
-    copyButtonLabel: {
-      color: theme.colors.textPrimary,
-      fontFamily: typography.label.fontFamily,
-      fontSize: typography.caption.fontSize,
-      fontWeight: '600',
-    },
+    actionButton: { flex: 1 },
     pending: {
       gap: spacing.sm,
       marginTop: spacing.md,
@@ -573,11 +642,11 @@ const createStyles = (theme: Theme) =>
       alignItems: 'center',
       flexDirection: 'row',
       gap: spacing.sm,
-      justifyContent: 'center',
-      marginTop: spacing.md,
+      marginTop: spacing.sm,
     },
     footerText: {
       color: theme.colors.textMuted,
+      flex: 1,
       fontFamily: typography.caption.fontFamily,
       fontSize: typography.caption.fontSize,
     },

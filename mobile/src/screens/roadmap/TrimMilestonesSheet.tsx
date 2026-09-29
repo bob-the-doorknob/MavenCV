@@ -48,7 +48,7 @@ export function TrimMilestonesSheet({ visible, onClose, tasks, onTrimmed }: Trim
   };
 
   return (
-    <Sheet onClose={onClose} title="Trim low-priority milestones" visible={visible}>
+    <Sheet onClose={onClose} scrollable={false} title="Trim low-priority milestones" visible={visible}>
       <Text style={styles.body}>
         These are your lowest-priority milestones. Removing one deletes it from your roadmap.
       </Text>

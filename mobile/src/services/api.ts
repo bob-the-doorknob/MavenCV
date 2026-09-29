@@ -2,6 +2,7 @@ import type { Level } from '../data/roles';
 import { findRolePreset, resolveRoleTitle } from '../data/roles';
 import type { RoadmapTask, TaskStep } from '../types';
 import { createId } from '../utils/id';
+import { formatMockCvBullet } from '../utils/cvBullets';
 import { clampEstimatedWeeks } from '../utils/schedule';
 import { getAuthToken } from './auth';
 import { getAppCheckToken } from './appCheck';
@@ -1215,8 +1216,6 @@ const mockGenerateRoadmap = async (input: GenerateRoadmapInput): Promise<Roadmap
   }));
 };
 
-const DIGIT_PATTERN = /\d/u;
-
 const mockGenerateCvBullet = async (input: GenerateCvBulletInput): Promise<CvBulletResult> => {
   await delay(3_000);
   const failure = mockFailureKind();
@@ -1224,19 +1223,11 @@ const mockGenerateCvBullet = async (input: GenerateCvBulletInput): Promise<CvBul
     throw new ApiError(failure, `Mocked ${failure} failure.`);
   }
 
-  const notes = input.notes.trim();
-  const evidence = notes || input.taskTitle;
-
-  if (!DIGIT_PATTERN.test(notes)) {
-    return {
-      text: `Completed ${input.taskTitle} by [X], based on: ${evidence}.`,
-      suggestions: ['Add a specific number — how many, how much, or over what time period.'],
-    };
+  const text = formatMockCvBullet(input.taskTitle, input.notes);
+  if (!text) {
+    throw new ApiError('invalid_response', 'Add completion notes before creating a CV bullet.');
   }
-
-  return {
-    text: `Completed ${input.taskTitle}, as shown by: ${evidence}.`,
-  };
+  return { text };
 };
 
 const MOCK_CV_SUMMARIES_BY_ROLE_ID: Readonly<Record<string, string>> = {

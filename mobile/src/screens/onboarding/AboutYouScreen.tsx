@@ -101,6 +101,7 @@ export function AboutYouScreen({
   const theme = useTheme();
   const insets = useSafeAreaInsets();
   const styles = useMemo(() => createStyles(theme), [theme]);
+  const isMockMode = process.env.EXPO_PUBLIC_USE_MOCK_API === 'true';
 
   const [mode, setMode] = useState<InputMode>('write');
   const [pickedFileName, setPickedFileName] = useState<string | null>(null);
@@ -141,6 +142,7 @@ export function AboutYouScreen({
     if (picking.current) return;
     picking.current = true;
     setIsExtracting(true);
+    setPickedFileName(null);
     const requestRevision = ++revision.current;
     setExtractError(null);
     let file;
@@ -161,9 +163,9 @@ export function AboutYouScreen({
     try {
       if (revision.current !== requestRevision) return;
       setPickedFileName(file.name);
-      // The backend takes the PDF as base64 JSON, so the bytes are read here
-      // and api.ts stays free of native file modules.
-      const pdfBase64 = await readPdfBase64(file.uri);
+      // Demo mode uses a sample preview and never reads or uploads the PDF.
+      // The live backend takes the PDF as base64 JSON.
+      const pdfBase64 = isMockMode ? '' : await readPdfBase64(file.uri);
       const result = await extractProfile({ pdfBase64 }, roleId ?? undefined, customTitle);
       if (revision.current !== requestRevision) return;
       setQuestions(result.questions);
@@ -176,13 +178,43 @@ export function AboutYouScreen({
       deleteCachedPdf(file.uri);
       picking.current = false;
       setIsExtracting(false);
+      setPickedFileName(null);
     }
   };
+
+  if (isExtracting && pickedFileName) {
+    return (
+      <View style={[styles.screen, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
+        <View style={styles.processingContent}>
+          <SectionLabel>Your experience</SectionLabel>
+          <Text style={styles.title}>{isMockMode ? 'Preparing your preview' : 'Reading your CV'}</Text>
+          <Text style={styles.subtitle}>{pickedFileName}</Text>
+          <View style={styles.processingCard}>
+            <ShimmerBar width="100%" />
+            <ShimmerBar delayMs={120} width="88%" />
+            <ShimmerBar delayMs={240} width="62%" />
+            <Text style={styles.extractingText}>
+              {isMockMode ? 'Preparing sample experience…' : 'Finding experience to review…'}
+            </Text>
+          </View>
+          <Text style={styles.hint}>
+            {isMockMode
+              ? 'Demo preview: your PDF is not analyzed or uploaded.'
+              : 'You can check and edit the extracted text before continuing.'}
+          </Text>
+        </View>
+      </View>
+    );
+  }
 
   return (
     <KeyboardAvoidingView behavior={Platform.OS === 'android' ? 'height' : 'padding'} style={styles.flex}>
       <View style={[styles.screen, { paddingTop: insets.top }]}>
-        <ScrollView contentContainerStyle={[styles.content, { paddingBottom: insets.bottom }]}>
+        <ScrollView
+          contentContainerStyle={[styles.content, { paddingBottom: insets.bottom }]}
+          keyboardDismissMode="on-drag"
+          keyboardShouldPersistTaps="handled"
+        >
           <View style={styles.headerBlock}>
             <SectionLabel>Step 2 of 3</SectionLabel>
             <Text style={styles.title}>Tell us about you</Text>
@@ -243,9 +275,11 @@ export function AboutYouScreen({
                   value={experience}
                 />
 
-                {showFilledNote ? (
+                {showFilledNote || (isMockMode && experience.trim()) ? (
                   <Text style={styles.filledNote}>
-                    We filled this from your CV. Check it and edit anything before generating.
+                    {isMockMode
+                      ? 'Demo preview: PDF uploads use sample text, not your CV. Replace any claims that are not yours before continuing.'
+                      : 'We filled this from your CV. Check it and edit anything before generating.'}
                   </Text>
                 ) : null}
 
@@ -256,6 +290,9 @@ export function AboutYouScreen({
               </View>
             ) : (
               <View style={styles.uploadContainer}>
+                {isMockMode ? (
+                  <Text style={styles.hint}>Demo preview uses sample text. Your PDF will not be analyzed or uploaded.</Text>
+                ) : null}
                 <Button
                   disabled={isExtracting || !acceptedAt}
                   label="Choose PDF"
@@ -263,16 +300,6 @@ export function AboutYouScreen({
                   onPress={() => void handleChoosePdf()}
                   variant="secondary"
                 />
-                {isExtracting ? (
-                  <View style={styles.extractingBlock}>
-                    <ShimmerBar width="100%" />
-                    <ShimmerBar delayMs={120} width="88%" />
-                    <ShimmerBar delayMs={240} width="62%" />
-                    <Text style={styles.extractingText}>
-                      {pickedFileName ? `${pickedFileName} — ` : ''}Reading your CV…
-                    </Text>
-                  </View>
-                ) : null}
                 {extractError ? (
                   <View style={styles.field}>
                     <Text style={styles.errorTitle}>{extractError.title}</Text>
@@ -430,9 +457,19 @@ const createStyles = (theme: Theme) =>
     uploadContainer: {
       gap: spacing.sm,
     },
-    extractingBlock: {
-      gap: spacing.sm,
-      paddingTop: spacing.xs,
+    processingContent: {
+      flex: 1,
+      gap: spacing.md,
+      justifyContent: 'center',
+      padding: spacing.xl,
+    },
+    processingCard: {
+      backgroundColor: theme.colors.surface,
+      borderColor: theme.colors.border,
+      borderRadius: radii.lg,
+      borderWidth: 1,
+      gap: spacing.md,
+      padding: spacing.lg,
     },
     extractingText: {
       color: theme.colors.textSecondary,

@@ -8,6 +8,7 @@ import Svg, { Path } from 'react-native-svg';
 import Constants from 'expo-constants';
 
 import { Card, SectionLabel } from '../../components/ui';
+import { PrivacyControls } from '../../components/PrivacyControls';
 import { usePressScale } from '../../components/ui/usePressScale';
 import { resolveRoleTitle } from '../../data/roles';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
@@ -213,6 +214,13 @@ export function SettingsScreen() {
               subtitle="Deletes every roadmap and CV bullet on this device"
               title="Reset all data"
             />
+          </Card>
+        </View>
+
+        <View style={styles.section}>
+          <SectionLabel>Privacy &amp; AI</SectionLabel>
+          <Card>
+            <PrivacyControls />
           </Card>
         </View>
 

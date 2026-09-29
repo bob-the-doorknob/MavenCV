@@ -3,12 +3,32 @@ import { useAppStore } from '../store/useAppStore';
 import { ApiError, generateCvBullet } from './api';
 import { getErrorMessage } from './errorMessages';
 import { create } from 'zustand';
+import { formatMockCvBullet, legacyMockCvNumber } from '../utils/cvBullets';
 
 // Module-level lock: only one run at a time. A call while running is ignored.
 let isRunning = false;
 let screenActive = true;
 export const setCvQueueActive = (active: boolean): void => { screenActive = active; };
 export const useCvQueueStatus = create<{ running: boolean; message: string | null }>(() => ({ running: false, message: null }));
+
+/** Replaces only untouched bullets from the old demo template. */
+export const repairLegacyMockCvEntries = (): void => {
+  if (process.env.EXPO_PUBLIC_USE_MOCK_API !== 'true') return;
+  const { targets, cvEntries } = useAppStore.getState();
+  for (const entry of cvEntries) {
+    if (entry.status !== 'ready') continue;
+    const task = targets.find((target) => target.id === entry.targetId)
+      ?.roadmap.find((candidate) => candidate.id === entry.taskId);
+    if (!task) continue;
+    const oldNumber = legacyMockCvNumber(entry.text);
+    if (oldNumber === null) continue;
+    const text = formatMockCvBullet(task.title, task.notes ?? '');
+    const suggestions = oldNumber && oldNumber !== '[X]'
+      ? [`Check the number before you use this — an earlier draft said ${oldNumber}.`]
+      : [];
+    if (text) useAppStore.getState().updateCvEntry(entry.id, { text, suggestions });
+  }
+};
 
 /**
  * Processes every pending CV entry, one at a time, turning each into
@@ -47,7 +67,7 @@ export const processPendingCvEntries = async (): Promise<void> => {
         });
       } catch (error) {
         if (error instanceof ApiError && error.kind === 'consent_required') {
-          useCvQueueStatus.setState({ message: 'CV generation paused. Review AI sharing below, then pull to retry. Your pending bullets are kept.' });
+          useCvQueueStatus.setState({ message: 'CV generation paused. Turn on AI sharing in Settings, then pull to retry. Your pending bullets are kept.' });
           return;
         }
         if (error instanceof ApiError && (error.kind === 'rate_limited' || error.kind === 'network' || error.kind === 'auth')) {
