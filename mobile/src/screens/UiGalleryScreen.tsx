@@ -171,6 +171,8 @@ export function UiGalleryScreen() {
         <Section title="ProgressBar">
           <ProgressBar value={progress} />
           <ProgressBar value={100} />
+          {/* Not readiness, so not accent — see DESIGN.md §2. */}
+          <ProgressBar fillColor={theme.colors.textMuted} height={6} value={progress} />
           <Row>
             <Button label="-10" onPress={() => setProgress((value) => Math.max(0, value - 10))} variant="secondary" />
             <Button label="+10" onPress={() => setProgress((value) => Math.min(100, value + 10))} variant="secondary" />

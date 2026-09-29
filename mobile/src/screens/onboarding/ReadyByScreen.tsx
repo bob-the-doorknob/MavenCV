@@ -3,7 +3,7 @@ import { BackHandler, Pressable, ScrollView, StyleSheet, Text, View } from 'reac
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated from 'react-native-reanimated';
 
-import { Button, SectionLabel } from '../../components/ui';
+import { Button } from '../../components/ui';
 import { usePressScale } from '../../components/ui/usePressScale';
 import { ReadyBySheet } from '../roadmap/ReadyBySheet';
 import { minTouchTarget, radii, spacing, typography, type Theme } from '../../theme/tokens';
@@ -46,7 +46,6 @@ export function ReadyByScreen({
     <View style={[styles.screen, { paddingTop: insets.top }]}>
       <ScrollView contentContainerStyle={[styles.content, { paddingBottom: insets.bottom }]}>
         <View style={styles.headerBlock}>
-          <SectionLabel>Step 3 of 3</SectionLabel>
           <Text style={styles.title}>When do you want to be ready?</Text>
           <Text style={styles.subtitle}>
             With a date, we spread your milestones across the weeks you have and tell you when each
@@ -58,6 +57,7 @@ export function ReadyByScreen({
       </ScrollView>
 
       <View style={[styles.footer, { paddingBottom: insets.bottom }]}>
+        <Text style={styles.stepMeta}>Step 3 of 3</Text>
         <Button
           disabled={targetDate === null}
           label="Generate my roadmap"
@@ -174,10 +174,19 @@ const createStyles = (theme: Theme) =>
       fontSize: typography.caption.fontSize,
     },
     dateAction: {
+      color: theme.colors.textPrimary,
+      fontFamily: typography.linkLabel.fontFamily,
+      fontSize: typography.linkLabel.fontSize,
+      fontWeight: typography.linkLabel.fontWeight,
+      lineHeight: typography.linkLabel.lineHeight,
+    },
+    // The step count is wayfinding, not a section label: it sits with the
+    // control that advances it (DESIGN.md §3).
+    stepMeta: {
       color: theme.colors.textMuted,
       fontFamily: typography.caption.fontFamily,
       fontSize: typography.caption.fontSize,
-      fontWeight: '600',
+      lineHeight: typography.caption.lineHeight,
     },
     footer: {
       backgroundColor: theme.colors.surface,

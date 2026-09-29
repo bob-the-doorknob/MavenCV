@@ -99,10 +99,13 @@ const createStyles = (theme: Theme) =>
       paddingHorizontal: spacing.xs,
     },
     actionLabel: {
-      color: theme.colors.accent,
-      fontFamily: typography.label.fontFamily,
-      fontSize: typography.caption.fontSize,
-      fontWeight: '600',
+      // The banner is an ink surface: paper text with an underline, not accent.
+      color: theme.colors.background,
+      fontFamily: typography.linkLabel.fontFamily,
+      fontSize: typography.linkLabel.fontSize,
+      fontWeight: typography.linkLabel.fontWeight,
+      lineHeight: typography.linkLabel.lineHeight,
+      textDecorationLine: 'underline',
     },
     text: {
       color: theme.colors.background,

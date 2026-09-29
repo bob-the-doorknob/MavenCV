@@ -3,7 +3,7 @@ import { BackHandler, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 
-import { Button, Card, SectionLabel } from '../../components/ui';
+import { Button, Card } from '../../components/ui';
 import type { Level } from '../../data/roles';
 import { generateRoadmap } from '../../services/api';
 import { checkProEntitlement } from '../../services/proStatus';
@@ -124,7 +124,6 @@ export function GeneratingScreen({
       {status === 'loading' ? (
         <View style={[styles.block, { paddingTop: insets.top + spacing.xxl }]}>
           <StatusBar style="light" />
-          <SectionLabel color={headerColors.textSecondary}>Building your roadmap</SectionLabel>
           <DrawingPath />
           <Text style={styles.statusLine}>{STATUS_LINES[lineIndex]}</Text>
         </View>

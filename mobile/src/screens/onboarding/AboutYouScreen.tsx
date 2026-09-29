@@ -20,7 +20,7 @@ import { levelLabels } from '../../data/roles';
 import { extractProfile } from '../../services/api';
 import type { ErrorMessage } from '../../services/errorMessages';
 import { deleteCachedPdf, getFilePickerErrorMessage, pickPdf, readPdfBase64 } from '../../services/filePicker';
-import { radii, spacing, typography, type Theme } from '../../theme/tokens';
+import { fontFamily, radii, spacing, typography, type Theme } from '../../theme/tokens';
 import { useTheme } from '../../theme/useTheme';
 import { EXPERIENCE_MAX_LENGTH, getExperienceFeedback } from '../../utils/experienceLimits';
 import { PrivacyControls } from '../../components/PrivacyControls';
@@ -186,7 +186,6 @@ export function AboutYouScreen({
     return (
       <View style={[styles.screen, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
         <View style={styles.processingContent}>
-          <SectionLabel>Your experience</SectionLabel>
           <Text style={styles.title}>{isMockMode ? 'Preparing your preview' : 'Reading your CV'}</Text>
           <Text style={styles.subtitle}>{pickedFileName}</Text>
           <View style={styles.processingCard}>
@@ -216,7 +215,6 @@ export function AboutYouScreen({
           keyboardShouldPersistTaps="handled"
         >
           <View style={styles.headerBlock}>
-            <SectionLabel>Step 2 of 3</SectionLabel>
             <Text style={styles.title}>Tell us about you</Text>
             <Text style={styles.subtitle}>
               This is what your roadmap is built from, so be concrete.
@@ -283,7 +281,11 @@ export function AboutYouScreen({
                   </Text>
                 ) : null}
 
-                <ProgressBar height={6} value={feedback.progressToRecommended * 100} />
+                <ProgressBar
+                  fillColor={theme.colors.textMuted}
+                  height={6}
+                  value={feedback.progressToRecommended * 100}
+                />
                 <Text style={[styles.hint, feedback.tone === 'sufficient' && styles.hintPositive]}>
                   {feedback.hintText}
                 </Text>
@@ -312,6 +314,7 @@ export function AboutYouScreen({
         </ScrollView>
 
         <View style={[styles.footer, { paddingBottom: insets.bottom }]}>
+          <Text style={styles.stepMeta}>Step 2 of 3</Text>
           <Button label="Continue" onPress={onContinue} disabled={!canContinue || !acceptedAt} />
         </View>
       </View>
@@ -342,10 +345,10 @@ function LevelRow({ title, description, selected, isFirst, onPress }: LevelRowPr
         onPress={onPress}
         onPressIn={press.onPressIn}
         onPressOut={press.onPressOut}
-        style={[styles.levelRow, !isFirst && styles.levelRowDivided]}
+        style={[styles.levelRow, !isFirst && styles.levelRowDivided, selected && styles.levelRowSelected]}
       >
         <View style={styles.levelCopy}>
-          <Text style={styles.levelTitle}>{title}</Text>
+          <Text style={[styles.levelTitle, selected && styles.levelTitleSelected]}>{title}</Text>
           <Text style={styles.levelDescription}>{description}</Text>
         </View>
         {selected ? (
@@ -397,16 +400,26 @@ const createStyles = (theme: Theme) =>
       borderTopColor: theme.colors.divider,
       borderTopWidth: 1,
     },
+    // Same selection device as the role rows: an ink edge, a heavier title.
+    levelRowSelected: {
+      borderLeftColor: theme.colors.textPrimary,
+      borderLeftWidth: 2,
+      paddingLeft: spacing.lg - 2,
+    },
     levelCopy: {
       flex: 1,
       gap: 2,
     },
     levelTitle: {
       color: theme.colors.textPrimary,
-      fontFamily: typography.rowTitle.fontFamily,
+      fontFamily: fontFamily.bodyMedium,
       fontSize: typography.rowTitle.fontSize,
-      fontWeight: typography.rowTitle.fontWeight,
+      fontWeight: '500',
       lineHeight: typography.rowTitle.lineHeight,
+    },
+    levelTitleSelected: {
+      fontFamily: typography.rowTitle.fontFamily,
+      fontWeight: typography.rowTitle.fontWeight,
     },
     levelDescription: {
       color: theme.colors.textSecondary,
@@ -487,10 +500,19 @@ const createStyles = (theme: Theme) =>
       fontFamily: typography.caption.fontFamily,
       fontSize: typography.caption.fontSize,
     },
+    // The step count is wayfinding, not a section label: it sits with the
+    // control that advances it (DESIGN.md §3).
+    stepMeta: {
+      color: theme.colors.textMuted,
+      fontFamily: typography.caption.fontFamily,
+      fontSize: typography.caption.fontSize,
+      lineHeight: typography.caption.lineHeight,
+    },
     footer: {
       backgroundColor: theme.colors.surface,
       borderTopColor: theme.colors.border,
       borderTopWidth: StyleSheet.hairlineWidth,
+      gap: spacing.sm,
       padding: spacing.lg,
     },
   });

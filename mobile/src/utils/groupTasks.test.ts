@@ -104,10 +104,16 @@ describe('countSteps', () => {
 });
 
 describe('taskMetaLine', () => {
-  it('shows priority and Done for a completed task, without steps', () => {
+  it('gives a done task no meta line at all', () => {
     const done = task({ status: 'done', priority: 3, steps: [step({ done: true })] });
 
-    expect(taskMetaLine(done, false)).toBe('High · Done');
+    expect(taskMetaLine(done, false)).toBe('');
+  });
+
+  it('never mentions priority — that lives on the milestone screen', () => {
+    const inProgress = task({ status: 'in_progress', priority: 3, steps: [step()] });
+
+    expect(taskMetaLine(inProgress, false)).not.toContain('High');
   });
 
   it('shows step progress for an in-progress task', () => {
@@ -117,37 +123,37 @@ describe('taskMetaLine', () => {
       steps: [step({ id: '1', done: true }), step({ id: '2' })],
     });
 
-    expect(taskMetaLine(inProgress, false)).toBe('Med · In progress · 1/2 steps');
+    expect(taskMetaLine(inProgress, false)).toBe('1/2 steps');
   });
 
   it('says Up next only for the up-next task', () => {
     const upcoming = task({ status: 'not_started', priority: 2 });
 
-    expect(taskMetaLine(upcoming, true)).toBe('Med · Up next');
-    expect(taskMetaLine(upcoming, false)).toBe('Med · Not started');
+    expect(taskMetaLine(upcoming, true)).toBe('Up next');
+    expect(taskMetaLine(upcoming, false)).toBe('Not started');
   });
 
   it('says Start here on a roadmap where nothing has begun', () => {
     const upcoming = task({ status: 'not_started', priority: 2 });
 
-    expect(taskMetaLine(upcoming, true, { neverStarted: true })).toBe('Med · Start here');
+    expect(taskMetaLine(upcoming, true, { neverStarted: true })).toBe('Start here');
   });
 
-  it('keeps Up next once something has been started or finished', () => {
-    const upcoming = task({ status: 'not_started', priority: 2 });
+  it('prefers Up next over step progress on the up-next milestone', () => {
+    const upcoming = task({ status: 'not_started', priority: 2, steps: [step(), step({ id: '2' })] });
 
-    expect(taskMetaLine(upcoming, true, { neverStarted: false })).toBe('Med · Up next');
-    expect(taskMetaLine(upcoming, true)).toBe('Med · Up next');
+    expect(taskMetaLine(upcoming, true, { neverStarted: false })).toBe('Up next');
+    expect(taskMetaLine(upcoming, true)).toBe('Up next');
   });
 
   it('never says Start here on a milestone that is not up next', () => {
     const later = task({ status: 'not_started', priority: 2 });
 
-    expect(taskMetaLine(later, false, { neverStarted: true })).toBe('Med · Not started');
+    expect(taskMetaLine(later, false, { neverStarted: true })).toBe('Not started');
   });
 
-  it('omits steps when the task has none', () => {
-    expect(taskMetaLine(task({ status: 'in_progress', priority: 1 }), false)).toBe('Low · In progress');
+  it('falls back to the status when the task has no steps', () => {
+    expect(taskMetaLine(task({ status: 'in_progress', priority: 1 }), false)).toBe('In progress');
   });
 });
 

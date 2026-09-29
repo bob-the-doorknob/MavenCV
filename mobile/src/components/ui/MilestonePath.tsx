@@ -8,7 +8,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import Svg, { Path } from 'react-native-svg';
 
-import { motion, radii, spacing, typography, type CategoryKey, type Theme } from '../../theme/tokens';
+import { fontFamily, motion, radii, spacing, typography, type CategoryKey, type Theme } from '../../theme/tokens';
 import { useTheme } from '../../theme/useTheme';
 import type { TaskStatus } from '../../types';
 import { CategoryChip } from './CategoryChip';
@@ -127,7 +127,9 @@ export function MilestoneRow({
     <View style={[styles.content, isCurrent && styles.currentCard, isDragging && styles.draggingCard]}>
       <View style={styles.copy}>
         <Text style={[styles.title, item.status === 'done' && styles.titleDone]}>{item.title}</Text>
-        {item.meta || item.schedule ? (
+        {/* A done milestone is history: the filled node carries it, so the row
+            drops its meta and schedule rather than repeating them. */}
+        {item.status !== 'done' && (item.meta || item.schedule) ? (
           <Text style={styles.detail}>
             {item.meta}
             {item.meta && item.schedule ? ' · ' : ''}
@@ -247,14 +249,14 @@ const createStyles = (theme: Theme) =>
     currentCard: {
       backgroundColor: theme.colors.surface,
       borderColor: theme.colors.border,
-      borderRadius: radii.lg,
+      borderRadius: radii.xl,
       borderWidth: 1,
       padding: spacing.lg,
     },
     draggingCard: {
       backgroundColor: theme.colors.surface,
       borderColor: theme.colors.textPrimary,
-      borderRadius: radii.lg,
+      borderRadius: radii.xl,
       borderWidth: 1,
       paddingHorizontal: spacing.lg,
     },
@@ -266,8 +268,14 @@ const createStyles = (theme: Theme) =>
       letterSpacing: typography.rowTitle.letterSpacing,
       lineHeight: typography.rowTitle.lineHeight,
     },
+    // Travelled rows recede to body weight — see DESIGN.md §5.
     titleDone: {
       color: theme.colors.textSecondary,
+      fontFamily: fontFamily.body,
+      fontSize: typography.body.fontSize,
+      fontWeight: typography.body.fontWeight,
+      letterSpacing: typography.body.letterSpacing,
+      lineHeight: typography.body.lineHeight,
     },
     detail: {
       color: theme.colors.textSecondary,
@@ -280,7 +288,9 @@ const createStyles = (theme: Theme) =>
       marginTop: spacing.xs,
     },
     scheduleDueSoon: {
-      color: theme.colors.accentText,
+      color: theme.colors.textPrimary,
+      fontFamily: fontFamily.bodySemiBold,
+      fontWeight: '600',
     },
     scheduleOverdue: {
       color: theme.colors.danger,

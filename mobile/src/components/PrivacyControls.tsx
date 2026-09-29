@@ -114,5 +114,5 @@ const createStyles = (theme: Theme) => StyleSheet.create({
   manage: { ...typography.caption, color: theme.colors.textPrimary, fontWeight: '600' },
   links: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
   link: { minHeight: minTouchTarget, minWidth: minTouchTarget, justifyContent: 'center', paddingHorizontal: spacing.sm },
-  linkText: { ...typography.caption, color: theme.colors.textPrimary, textDecorationLine: 'underline' },
+  linkText: { ...typography.linkLabel, color: theme.colors.textPrimary },
 });
