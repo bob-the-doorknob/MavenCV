@@ -35,7 +35,6 @@ import { countSteps, orderRoadmap, sortMilestones, taskMetaLine } from '../../ut
 import { categoryKeyForRole } from '../../utils/roleCategory';
 import { fits, overdueSummary, scheduleLabel } from '../../utils/schedule';
 import type { PaywallTrigger } from '../../utils/paywallCopy';
-import { calculateStreak, completionTimestamps, streakLabel } from '../../utils/streak';
 import { formatDueDate, formatMonthYear, formatWeeksLeft } from '../../utils/targetDate';
 import type { MilestoneSort, RoadmapTask } from '../../types';
 import { ProUpsellSheet } from '../cv/ProUpsellSheet';
@@ -208,10 +207,6 @@ export function RoadmapScreen() {
   };
 
   const overdue = useMemo(() => overdueSummary(roadmap, now), [roadmap, now]);
-  const streak = useMemo(
-    () => (target ? calculateStreak(completionTimestamps(target), now) : 0),
-    [target, now],
-  );
 
   /**
    * Dates move on their own, so a refresh re-lays the schedule against today
@@ -279,7 +274,6 @@ export function RoadmapScreen() {
     <View style={styles.headerStack}>
         <View style={styles.header}>
           <View style={styles.headerTop}>
-            <SectionLabel color={headerColors.textSecondary}>Your roadmap</SectionLabel>
             <SettingsButton onPress={() => navigation.navigate('Settings')} />
           </View>
           <Pressable
@@ -295,10 +289,20 @@ export function RoadmapScreen() {
             onPress={() => setTargetsVisible(true)}
             style={styles.roleTitleTarget}
           >
-            <Text style={styles.roleTitle}>
+            <Text numberOfLines={2} style={styles.roleTitle}>
               {target ? resolveRoleTitle(target.roleId, target.customTitle) : 'No target role'}
             </Text>
-            {target ? <Text style={styles.roleTitleHint}>Tap to switch or edit</Text> : null}
+            {target ? (
+              <Svg fill="none" height={18} viewBox="0 0 24 24" width={18}>
+                <Path
+                  d="M6 9.5 L12 15.5 L18 9.5"
+                  stroke={headerColors.textSecondary}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                />
+              </Svg>
+            ) : null}
           </Pressable>
           {target ? (
             <View style={styles.headerChips}>
@@ -307,10 +311,20 @@ export function RoadmapScreen() {
             </View>
           ) : null}
 
-          <ScoreArc
-            label={target ? SCORE_LABELS[target.level] : 'ready'}
-            value={readiness}
-          />
+          {/* The score is the thing being explained, so it is the thing you
+              tap — the header no longer needs a separate link. */}
+          <Pressable
+            accessibilityLabel={`${target ? SCORE_LABELS[target.level] : 'ready'}. How is this scored?`}
+            accessibilityRole="button"
+            accessibilityValue={{ min: 0, max: 100, now: readiness }}
+            onPress={() => setScoringVisible(true)}
+            style={styles.arcTarget}
+          >
+            <ScoreArc
+              label={target ? SCORE_LABELS[target.level] : 'ready'}
+              value={readiness}
+            />
+          </Pressable>
 
           <Pressable
             accessibilityHint="Opens your journey"
@@ -318,11 +332,10 @@ export function RoadmapScreen() {
             accessibilityRole="button"
             hitSlop={12}
             onPress={() => navigation.navigate('Journey')}
-            style={styles.headerCaptionTarget}
+            style={[styles.headerCaptionTarget, styles.headerCaptionTargetSpaced]}
           >
             <Text style={styles.headerCaption}>
               {ordered.doneCount} of {ordered.totalCount} milestones done
-              {streakLabel(streak) ? ` · ${streakLabel(streak)}` : ''}
             </Text>
             <Text style={styles.headerCaptionLink}>See your journey</Text>
           </Pressable>
@@ -340,15 +353,6 @@ export function RoadmapScreen() {
             </Pressable>
           ) : null}
 
-          <Pressable
-            accessibilityLabel="How is this scored?"
-            accessibilityRole="button"
-            hitSlop={12}
-            onPress={() => setScoringVisible(true)}
-            style={styles.scoringLinkTarget}
-          >
-            <Text style={styles.scoringLink}>How is this scored?</Text>
-          </Pressable>
         </View>
 
         {isReady && target ? (
@@ -809,7 +813,6 @@ const createStyles = (theme: Theme) =>
       borderColor: theme.colors.border,
       borderBottomLeftRadius: radii.header,
       borderBottomRightRadius: radii.header,
-      gap: spacing.md,
       paddingBottom: spacing.xl,
       paddingHorizontal: spacing.lg,
       paddingTop: spacing.lg,
@@ -818,7 +821,7 @@ const createStyles = (theme: Theme) =>
       alignItems: 'center',
       alignSelf: 'stretch',
       flexDirection: 'row',
-      justifyContent: 'space-between',
+      justifyContent: 'flex-end',
     },
     gearButton: {
       alignItems: 'center',
@@ -850,18 +853,14 @@ const createStyles = (theme: Theme) =>
     },
     roleTitleTarget: {
       alignItems: 'center',
-      gap: 2,
+      flexDirection: 'row',
+      gap: spacing.xs,
       paddingHorizontal: spacing.sm,
       paddingVertical: spacing.xs,
     },
-    roleTitleHint: {
-      color: headerColors.textSecondary,
-      fontFamily: typography.caption.fontFamily,
-      fontSize: typography.caption.fontSize,
-      lineHeight: typography.caption.lineHeight,
-    },
     roleTitle: {
       color: headerColors.text,
+      flexShrink: 1,
       fontFamily: typography.title.fontFamily,
       fontSize: typography.title.fontSize,
       fontWeight: typography.title.fontWeight,
@@ -874,6 +873,13 @@ const createStyles = (theme: Theme) =>
       flexWrap: 'wrap',
       gap: spacing.sm,
       justifyContent: 'center',
+      marginTop: spacing.sm,
+    },
+    // The arc is the block's one hero: spacing.xl above, and the caption
+    // hugging it below, keep everything else out of its way.
+    arcTarget: {
+      alignItems: 'center',
+      marginTop: spacing.xl,
     },
     overdueRow: {
       alignItems: 'center',
@@ -881,12 +887,16 @@ const createStyles = (theme: Theme) =>
       minHeight: minTouchTarget,
       paddingHorizontal: spacing.sm,
     },
+    headerCaptionTargetSpaced: {
+      marginTop: spacing.sm,
+    },
     overdueText: {
       // The header block is always dark, so the paper danger would not read.
       color: headerColors.danger,
-      fontFamily: typography.caption.fontFamily,
-      fontSize: typography.caption.fontSize,
-      lineHeight: typography.caption.lineHeight,
+      fontFamily: typography.linkLabel.fontFamily,
+      fontSize: typography.linkLabel.fontSize,
+      fontWeight: typography.linkLabel.fontWeight,
+      lineHeight: typography.linkLabel.lineHeight,
       textDecorationLine: 'underline',
     },
     headerCaptionTarget: {
@@ -898,9 +908,10 @@ const createStyles = (theme: Theme) =>
     },
     headerCaptionLink: {
       color: headerColors.text,
-      fontFamily: typography.caption.fontFamily,
-      fontSize: typography.caption.fontSize,
-      lineHeight: typography.caption.lineHeight,
+      fontFamily: typography.linkLabel.fontFamily,
+      fontSize: typography.linkLabel.fontSize,
+      fontWeight: typography.linkLabel.fontWeight,
+      lineHeight: typography.linkLabel.lineHeight,
       textDecorationLine: 'underline',
     },
     headerCaption: {
@@ -908,19 +919,6 @@ const createStyles = (theme: Theme) =>
       fontFamily: typography.caption.fontFamily,
       fontSize: typography.caption.fontSize,
       lineHeight: typography.caption.lineHeight,
-    },
-    scoringLinkTarget: {
-      alignItems: 'center',
-      justifyContent: 'center',
-      minHeight: minTouchTarget,
-      paddingHorizontal: spacing.sm,
-    },
-    scoringLink: {
-      color: headerColors.text,
-      fontFamily: typography.caption.fontFamily,
-      fontSize: typography.caption.fontSize,
-      lineHeight: typography.caption.lineHeight,
-      textDecorationLine: 'underline',
     },
     section: {
       gap: spacing.md,

@@ -163,14 +163,11 @@ export function TaskDetailScreen() {
         keyboardDismissMode="on-drag"
         keyboardShouldPersistTaps="handled"
       >
-        <View style={styles.chipRow}>
-          <StatusPill status={task.status} />
-          <Chip label={`${priorityLabels[task.priority]} priority`} />
-          {isFocus ? <Chip label="Working on now" /> : null}
-          {task.createdByUser ? <Chip label="Added by you" /> : null}
-        </View>
-
         <Text style={styles.title}>{task.title}</Text>
+
+        <View style={styles.statusRow}>
+          <StatusPill status={task.status} />
+        </View>
 
         {schedule ? (
           <Text
@@ -185,7 +182,10 @@ export function TaskDetailScreen() {
         ) : null}
 
         <View style={styles.section}>
-          <SectionLabel>Estimated time</SectionLabel>
+          <View style={styles.sectionHeader}>
+            <SectionLabel>Estimated time</SectionLabel>
+            <Chip label={`${priorityLabels[task.priority]} priority`} />
+          </View>
           <View style={styles.chipRow}>
             {ESTIMATE_CHOICES.map((weeks) => (
               <Chip
@@ -285,31 +285,16 @@ export function TaskDetailScreen() {
         ) : task.status === 'in_progress' ? (
           <Button label="Mark as done" onPress={() => setMarkDoneVisible(true)} />
         ) : null}
-        <View style={styles.secondaryActions}>
-          <Pressable
-            accessibilityLabel="Edit milestone"
-            accessibilityRole="button"
-            android_ripple={{ color: theme.colors.border }}
-            hitSlop={8}
-            onPress={() => setEditVisible(true)}
-            style={styles.textAction}
-          >
-            <Text style={styles.textActionLabel}>Edit</Text>
-          </Pressable>
-          <Pressable
-            accessibilityLabel="Delete milestone"
-            accessibilityRole="button"
-            android_ripple={{ color: theme.colors.border }}
-            hitSlop={8}
-            onPress={confirmDelete}
-            style={styles.textAction}
-          >
-            <Text style={[styles.textActionLabel, styles.dangerLabel]}>Delete</Text>
-          </Pressable>
-        </View>
       </View>
 
       <Sheet onClose={() => setActionsVisible(false)} title="Milestone actions" visible={actionsVisible}>
+        {isFocus || task.createdByUser ? (
+          <Text style={styles.sheetContext}>
+            {isFocus ? 'You are working on this now.' : ''}
+            {isFocus && task.createdByUser ? ' ' : ''}
+            {task.createdByUser ? 'You added this milestone.' : ''}
+          </Text>
+        ) : null}
         <Button
           disabled={index <= 0}
           label="Move up"
@@ -586,9 +571,24 @@ const createStyles = (theme: Theme) =>
       width: minTouchTarget,
     },
     content: {
-      gap: spacing.lg,
       padding: spacing.lg,
       paddingBottom: spacing.xxxl,
+    },
+    statusRow: {
+      flexDirection: 'row',
+      marginTop: spacing.md,
+    },
+    sectionHeader: {
+      alignItems: 'center',
+      flexDirection: 'row',
+      gap: spacing.md,
+      justifyContent: 'space-between',
+    },
+    sheetContext: {
+      color: theme.colors.textSecondary,
+      fontFamily: typography.caption.fontFamily,
+      fontSize: typography.caption.fontSize,
+      lineHeight: typography.caption.lineHeight,
     },
     chipRow: {
       flexDirection: 'row',
@@ -602,9 +602,10 @@ const createStyles = (theme: Theme) =>
       justifyContent: 'center',
       paddingHorizontal: spacing.md,
     },
+    // In progress is a state, not progress: it earns an ink edge, not accent.
     statusPillActive: {
-      backgroundColor: theme.colors.accentMuted,
-      borderColor: theme.colors.accentMuted,
+      backgroundColor: 'transparent',
+      borderColor: theme.colors.textPrimary,
     },
     statusPillNeutral: {
       backgroundColor: 'transparent',
@@ -616,7 +617,7 @@ const createStyles = (theme: Theme) =>
       fontWeight: '600',
     },
     statusPillLabelActive: {
-      color: theme.colors.accentText,
+      color: theme.colors.textPrimary,
     },
     statusPillLabelNeutral: {
       color: theme.colors.textPrimary,
@@ -634,16 +635,17 @@ const createStyles = (theme: Theme) =>
       fontFamily: typography.rowTitle.fontFamily,
       fontSize: typography.caption.fontSize,
       fontWeight: '600',
-      marginTop: -spacing.sm,
+      marginTop: spacing.sm,
     },
     scheduleDueSoon: {
-      color: theme.colors.accentText,
+      color: theme.colors.textPrimary,
     },
     scheduleOverdue: {
       color: theme.colors.danger,
     },
     stepSummary: {
       gap: spacing.sm,
+      marginTop: spacing.xl,
     },
     stepCount: {
       color: theme.colors.textPrimary,
@@ -658,6 +660,7 @@ const createStyles = (theme: Theme) =>
     },
     section: {
       gap: spacing.sm,
+      marginTop: spacing.xl,
     },
     body: {
       color: theme.colors.textSecondary,
@@ -739,25 +742,5 @@ const createStyles = (theme: Theme) =>
       gap: spacing.sm,
       paddingHorizontal: spacing.lg,
       paddingTop: spacing.md,
-    },
-    secondaryActions: {
-      flexDirection: 'row',
-      gap: spacing.xl,
-      justifyContent: 'center',
-    },
-    textAction: {
-      alignItems: 'center',
-      justifyContent: 'center',
-      minHeight: minTouchTarget,
-      paddingHorizontal: spacing.md,
-    },
-    textActionLabel: {
-      color: theme.colors.textSecondary,
-      fontFamily: typography.label.fontFamily,
-      fontSize: typography.caption.fontSize,
-      fontWeight: '600',
-    },
-    dangerLabel: {
-      color: theme.colors.danger,
     },
   });

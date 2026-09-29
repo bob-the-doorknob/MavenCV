@@ -16,10 +16,15 @@ interface ProgressBarProps {
   height?: number;
   /** Track color override, e.g. inside the dark header block. */
   trackColor?: string;
+  /**
+   * Fill color override. Accent is reserved for progress towards readiness
+   * (DESIGN.md §2), so a bar measuring anything else passes a neutral here.
+   */
+  fillColor?: string;
   style?: StyleProp<ViewStyle>;
 }
 
-export function ProgressBar({ value, height = 10, trackColor, style }: ProgressBarProps) {
+export function ProgressBar({ value, height = 10, trackColor, fillColor, style }: ProgressBarProps) {
   const theme = useTheme();
   const styles = useMemo(() => createStyles(theme), [theme]);
   const reducedMotion = useReducedMotion();
@@ -45,7 +50,14 @@ export function ProgressBar({ value, height = 10, trackColor, style }: ProgressB
         style,
       ]}
     >
-      <Animated.View style={[styles.fill, { height, borderRadius: height / 2 }, fillStyle]} />
+      <Animated.View
+        style={[
+          styles.fill,
+          { height, borderRadius: height / 2 },
+          fillColor ? { backgroundColor: fillColor } : null,
+          fillStyle,
+        ]}
+      />
     </Animated.View>
   );
 }

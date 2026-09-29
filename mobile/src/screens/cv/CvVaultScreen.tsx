@@ -497,6 +497,9 @@ const createStyles = (theme: Theme) =>
       marginBottom: spacing.md,
     },
     headerActions: {
+      // The buttons divide the row with flex: 1, so the row itself must span
+      // the header's width rather than hug its content.
+      alignSelf: 'stretch',
       flexDirection: 'row',
       gap: spacing.sm,
     },
@@ -532,8 +535,10 @@ const createStyles = (theme: Theme) =>
     copyAllLabel: {
       color: theme.colors.onPrimaryButton,
       fontFamily: typography.label.fontFamily,
-      fontSize: typography.caption.fontSize,
-      fontWeight: '600',
+      fontSize: typography.label.fontSize,
+      fontWeight: typography.label.fontWeight,
+      letterSpacing: typography.label.letterSpacing,
+      lineHeight: typography.label.lineHeight,
     },
     proBadge: {
       backgroundColor: theme.colors.onPrimaryButton,
@@ -548,9 +553,10 @@ const createStyles = (theme: Theme) =>
       fontWeight: '600',
       letterSpacing: 0.6,
     },
+    // An unfinished bullet is not progress, so it earns its emphasis with an
+    // ink border. The one accent left on the card is the [X] itself.
     cardNeedsNumber: {
-      backgroundColor: theme.colors.accentMuted,
-      borderColor: theme.colors.accent,
+      borderColor: theme.colors.textPrimary,
     },
     privacyRow: {
       alignItems: 'center',
@@ -564,10 +570,11 @@ const createStyles = (theme: Theme) =>
       paddingVertical: spacing.sm,
     },
     privacyLabel: {
-      color: theme.colors.textSecondary,
-      fontFamily: typography.rowTitle.fontFamily,
-      fontSize: typography.caption.fontSize,
-      fontWeight: '600',
+      color: theme.colors.textPrimary,
+      fontFamily: typography.linkLabel.fontFamily,
+      fontSize: typography.linkLabel.fontSize,
+      fontWeight: typography.linkLabel.fontWeight,
+      lineHeight: typography.linkLabel.lineHeight,
     },
     moreButton: {
       alignItems: 'center',
@@ -606,13 +613,13 @@ const createStyles = (theme: Theme) =>
     },
     needsChip: {
       alignSelf: 'flex-start',
-      backgroundColor: theme.colors.surface,
+      backgroundColor: theme.colors.background,
       borderRadius: radii.pill,
       paddingHorizontal: spacing.md,
       paddingVertical: spacing.xs,
     },
     needsChipLabel: {
-      color: theme.colors.accentText,
+      color: theme.colors.textPrimary,
       fontFamily: typography.caption.fontFamily,
       fontSize: typography.caption.fontSize,
       fontWeight: '600',

@@ -15,7 +15,7 @@ import Svg, { Path } from 'react-native-svg';
 import { Button, SectionLabel, TextField } from '../../components/ui';
 import { usePressScale } from '../../components/ui/usePressScale';
 import { CUSTOM_ROLE_ID, rolePresets, type RoleCategory, type RolePreset } from '../../data/roles';
-import { categoryTints, radii, spacing, typography, type Theme } from '../../theme/tokens';
+import { categoryTints, fontFamily, radii, spacing, typography, type Theme } from '../../theme/tokens';
 import { useTheme } from '../../theme/useTheme';
 import { categoryKeyForRole } from '../../utils/roleCategory';
 
@@ -66,7 +66,6 @@ export function RoleScreen({
           keyboardShouldPersistTaps="handled"
         >
           <View style={styles.headerBlock}>
-            <SectionLabel>Step 1 of 3</SectionLabel>
             <Text style={styles.title}>What role are you aiming for?</Text>
             <Text style={styles.subtitle}>
               Pick the closest one. You can change it later — it only sets the starting roadmap.
@@ -117,6 +116,7 @@ export function RoleScreen({
         </ScrollView>
 
         <View style={[styles.footer, { paddingBottom: insets.bottom }]}>
+          <Text style={styles.stepMeta}>Step 1 of 3</Text>
           <Button label="Continue" onPress={onContinue} disabled={!canContinue} />
         </View>
       </View>
@@ -153,7 +153,7 @@ function RoleRow({ roleId, title, description, selected, isFirst, onPress }: Rol
       >
         <View style={[styles.tintBar, { backgroundColor: tint.text }]} />
         <View style={styles.rowCopy}>
-          <Text style={styles.rowTitle}>{title}</Text>
+          <Text style={[styles.rowTitle, selected && styles.rowTitleSelected]}>{title}</Text>
           <Text style={styles.rowDescription}>{description}</Text>
         </View>
         {selected ? (
@@ -224,8 +224,12 @@ const createStyles = (theme: Theme) =>
       borderTopColor: theme.colors.divider,
       borderTopWidth: 1,
     },
+    // Selection gains weight: an ink edge and a heavier title. The paddingLeft
+    // absorbs the border so the row's content does not shift on select.
     rowSelected: {
-      backgroundColor: theme.colors.background,
+      borderLeftColor: theme.colors.textPrimary,
+      borderLeftWidth: 2,
+      paddingLeft: spacing.md - 2,
     },
     tintBar: {
       borderRadius: radii.pill,
@@ -238,13 +242,25 @@ const createStyles = (theme: Theme) =>
     },
     rowTitle: {
       color: theme.colors.textPrimary,
-      fontFamily: typography.rowTitle.fontFamily,
+      fontFamily: fontFamily.bodyMedium,
       fontSize: typography.rowTitle.fontSize,
-      fontWeight: typography.rowTitle.fontWeight,
+      fontWeight: '500',
       lineHeight: typography.rowTitle.lineHeight,
+    },
+    rowTitleSelected: {
+      fontFamily: typography.rowTitle.fontFamily,
+      fontWeight: typography.rowTitle.fontWeight,
     },
     rowDescription: {
       color: theme.colors.textSecondary,
+      fontFamily: typography.caption.fontFamily,
+      fontSize: typography.caption.fontSize,
+      lineHeight: typography.caption.lineHeight,
+    },
+    // The step count is wayfinding, not a section label: it sits with the
+    // control that advances it (DESIGN.md §3).
+    stepMeta: {
+      color: theme.colors.textMuted,
       fontFamily: typography.caption.fontFamily,
       fontSize: typography.caption.fontSize,
       lineHeight: typography.caption.lineHeight,
@@ -253,6 +269,7 @@ const createStyles = (theme: Theme) =>
       backgroundColor: theme.colors.surface,
       borderTopColor: theme.colors.border,
       borderTopWidth: StyleSheet.hairlineWidth,
+      gap: spacing.sm,
       padding: spacing.lg,
     },
   });

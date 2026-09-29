@@ -235,6 +235,18 @@ export const typography = {
     fontWeight: '600',
     letterSpacing: 0.96,
   },
+  /**
+   * Inline text links. Ink at 600, never underlined — except inside the dark
+   * header block, where the link takes a header color and keeps its underline
+   * so it reads as tappable on dark.
+   */
+  linkLabel: {
+    fontFamily: fontFamily.bodySemiBold,
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '600',
+    letterSpacing: 0,
+  },
   /** Button and chip labels. */
   label: {
     fontFamily: fontFamily.bodySemiBold,

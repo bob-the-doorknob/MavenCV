@@ -13,6 +13,7 @@ import { useActiveTarget, useAppStore } from '../../store/useAppStore';
 import { minTouchTarget, spacing, typography, type Theme } from '../../theme/tokens';
 import { useTheme } from '../../theme/useTheme';
 import { buildJourney, journeySummary, type JourneyEntry } from '../../utils/journey';
+import { calculateStreak, completionTimestamps } from '../../utils/streak';
 import { formatDueDate, formatMonthYear } from '../../utils/targetDate';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
@@ -37,6 +38,10 @@ export function JourneyScreen() {
     () => (target ? journeySummary(target, cvEntries) : null),
     [target, cvEntries],
   );
+  const streak = useMemo(
+    () => (target ? calculateStreak(completionTimestamps(target), Date.now()) : 0),
+    [target],
+  );
 
   return (
     <View style={styles.screen}>
@@ -56,6 +61,7 @@ export function JourneyScreen() {
               <SummaryStat label="Milestones" value={`${summary.milestonesCompleted}`} />
               <SummaryStat label="CV bullets" value={`${summary.bulletsWritten}`} />
               <SummaryStat label="Weeks active" value={`${summary.weeksActive}`} />
+              <SummaryStat label="Week streak" value={`${streak}`} />
               <SummaryStat label="Ready" value={`${summary.readiness}%`} />
             </View>
           </Card>

@@ -54,18 +54,30 @@ Background `#111214`, surface `#1A1C1F`, light text (`#F6F4EE` primary, `#A8A49B
 
 Read them through `categoryTints[mode][category]` or the `useCategoryTint` hook.
 
+**A category tint appears once per screen or once per group — never once per row.** Repeated down a list it stops being information and becomes a second colour system competing with the accent. On a list where every row shares a category, the tint belongs on the group, not the rows.
+
 ---
 
 ## 2. The accent rule
 
-Accent (`#FF6B2C`) is **only** for progress:
+Accent (`#FF6B2C`) is **only** for progress towards readiness:
 
 - the readiness score number
-- progress bars and the score arc fill
+- the score arc fill, and progress bars that report progress towards readiness
 - done nodes, their checkmarks, and the in-progress ring
 - the part of the milestone path already travelled
 
-Everything else is paper, ink, and borders.
+Everything else is paper, ink, and borders. In particular, accent is **not** for
+states, warnings or time pressure:
+
+- **due soon** is ink at 600; **overdue** is `danger`
+- an **in-progress status pill** takes an ink border, not an accent fill
+- a **bullet waiting on a number** takes an ink border, not an accent card
+- a bar measuring anything other than readiness passes a neutral `fillColor`
+
+**One exception:** the inline `[X]` placeholder inside a CV bullet is `accentText`.
+It marks the exact word the user must replace, inside a line of body text where a
+border or a weight change cannot point at a single token.
 
 **Primary buttons are ink (`#15171B`) with white text — never orange.** White on orange fails contrast. In dark mode the primary button inverts to paper with ink text (`primaryButton` / `onPrimaryButton`). Where a check or icon sits on an accent fill, it is ink (`onAccent`), not white.
 
@@ -91,9 +103,21 @@ Two families, loaded at app start with `expo-font` (see `src/theme/fonts.ts`). F
 | `body` | 15 / 400 |
 | `caption` (secondary) | 13 / 400 (14 acceptable) |
 | `sectionLabel` | 12 / 600, uppercase, `0.96` letter spacing (0.08em), in `textMuted` |
+| `linkLabel` (inline text links) | 13 / 600 |
 | `label` (buttons, chips) | 16 / 600 |
 
 Use the `SectionLabel` component rather than restyling text — it owns the uppercasing.
+
+**`SectionLabel` marks a group inside a screen. It never sits above a screen title.**
+An uppercase label over a title is decoration: the title already says what the screen
+is, and the pair reads as a template. Wayfinding that would have gone in such a label
+(a step count, a mode) goes next to the control it belongs to instead.
+
+**Links are `linkLabel` in `textPrimary`, with no underline.** The one exception is a
+link inside the dark header block, which takes a header colour (`headerColors.text`,
+or `headerColors.danger` for an overdue warning) and keeps its underline, since ink
+cannot carry the affordance on dark. Never restyle a link per screen — five slightly
+different link styles is how a system stops being one.
 
 ---
 
@@ -118,7 +142,9 @@ Use the `SectionLabel` component rather than restyling text — it owns the uppe
 - **in progress** — accent ring with an inner accent dot
 - **not started** — grey (`node`) ring
 
-The current task is highlighted as a white card; the others sit directly on paper.
+The current task is highlighted as a white card (radius 20); the others sit directly on paper.
+
+Travelled rows recede. A done milestone drops its title to `body` (15/400) in `textSecondary` and shows no meta or schedule line at all — the filled node is the whole statement. Only work still ahead carries a meta fact.
 
 ---
 

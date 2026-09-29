@@ -57,28 +57,35 @@ export interface MetaLineOptions {
   neverStarted?: boolean;
 }
 
-/** The meta line under a milestone title, e.g. "Med · In progress · 2/4 steps". */
+/**
+ * The single meta fact under a milestone title, e.g. "2/4 steps" or
+ * "Start here". A row carries at most this plus its schedule, so the list
+ * stays scannable; priority lives on the milestone screen, and the node
+ * already shows the status a word would repeat.
+ *
+ * A done milestone has no meta line — it is history, and the filled node
+ * says so.
+ */
 export const taskMetaLine = (
   task: RoadmapTask,
   isUpNext: boolean,
   options: MetaLineOptions = {},
 ): string => {
-  const parts: string[] = [priorityLabels[task.priority]];
-
   if (task.status === 'done') {
-    parts.push('Done');
-  } else if (task.status === 'in_progress') {
-    parts.push('In progress');
-  } else {
-    parts.push(isUpNext ? (options.neverStarted ? 'Start here' : 'Up next') : 'Not started');
+    return '';
+  }
+
+  // "Start here" and "Up next" are the only words the node cannot show.
+  if (task.status === 'not_started' && isUpNext) {
+    return options.neverStarted ? 'Start here' : 'Up next';
   }
 
   const steps = countSteps(task);
-  if (task.status !== 'done' && steps.total > 0) {
-    parts.push(`${steps.done}/${steps.total} steps`);
+  if (steps.total > 0) {
+    return `${steps.done}/${steps.total} steps`;
   }
 
-  return parts.join(' · ');
+  return task.status === 'in_progress' ? 'In progress' : 'Not started';
 };
 
 /**
