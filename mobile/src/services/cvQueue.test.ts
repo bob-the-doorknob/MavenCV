@@ -96,7 +96,7 @@ describe('repairLegacyMockCvEntries', () => {
 
     const [repaired] = useAppStore.getState().cvEntries;
     expect(repaired?.text).toBe('Built 1 portfolio project.');
-    expect(repaired?.suggestions?.[0]).toContain('Earlier draft used 3');
+    expect(repaired?.suggestions?.[0]).toContain('an earlier draft said 3');
   });
 
   it('leaves edited bullets alone', () => {
@@ -129,7 +129,7 @@ describe('repairLegacyMockCvEntries', () => {
 
     const [repaired] = useAppStore.getState().cvEntries;
     expect(repaired?.text).toBe('Built a chatbot and tested 3 questions.');
-    expect(repaired?.suggestions?.[0]).toContain('Earlier draft used 3');
+    expect(repaired?.suggestions?.[0]).toContain('an earlier draft said 3');
   });
 });
 

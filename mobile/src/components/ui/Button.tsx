@@ -6,7 +6,7 @@ import { minTouchTarget, radii, spacing, typography, type Theme } from '../../th
 import { useTheme } from '../../theme/useTheme';
 import { usePressScale } from './usePressScale';
 
-export type ButtonVariant = 'primary' | 'secondary' | 'ghost';
+export type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'danger';
 
 interface ButtonProps {
   label: string;
@@ -76,6 +76,10 @@ const createStyles = (theme: Theme) =>
     ghost: {
       backgroundColor: 'transparent',
     },
+    // Destructive: no fill, so it never competes with the primary action.
+    danger: {
+      backgroundColor: 'transparent',
+    },
     disabled: {
       opacity: 0.4,
     },
@@ -94,5 +98,8 @@ const createStyles = (theme: Theme) =>
     },
     ghostLabel: {
       color: theme.colors.textPrimary,
+    },
+    dangerLabel: {
+      color: theme.colors.danger,
     },
   });

@@ -18,7 +18,7 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import Animated from 'react-native-reanimated';
 import Svg, { Path } from 'react-native-svg';
 
-import { Button, Card, ConfirmationBanner, EmptyState, ShimmerBar, StatusNode } from '../../components/ui';
+import { Button, Card, ConfirmationBanner, EmptyState, Sheet, ShimmerBar, StatusNode } from '../../components/ui';
 import { usePressScale } from '../../components/ui/usePressScale';
 import { levelLabels, resolveRoleTitle } from '../../data/roles';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
@@ -32,7 +32,6 @@ import type { CvEntry, RoadmapTask } from '../../types';
 import { AddNumberSheet } from './AddNumberSheet';
 import { EditBulletSheet } from './EditBulletSheet';
 import { ProUpsellSheet } from './ProUpsellSheet';
-import { PrivacyControls } from '../../components/PrivacyControls';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 
@@ -50,7 +49,6 @@ export function CvVaultScreen() {
   const { isPro } = useProStatus();
   const queueMessage = useCvQueueStatus((state) => state.message);
   const pendingUndo = useAppStore((state) => state.pendingUndo);
-  const isDemoPreview = process.env.EXPO_PUBLIC_USE_MOCK_API === 'true';
   useFocusEffect(useCallback(() => {
     setCvQueueActive(true);
     repairLegacyMockCvEntries();
@@ -63,6 +61,7 @@ export function CvVaultScreen() {
   const [editEntry, setEditEntry] = useState<CvEntry | null>(null);
   const [numberEntry, setNumberEntry] = useState<CvEntry | null>(null);
   const [upsellVisible, setUpsellVisible] = useState(false);
+  const [menuEntry, setMenuEntry] = useState<CvEntry | null>(null);
   const bannerTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(
@@ -186,6 +185,18 @@ export function CvVaultScreen() {
               {entries.length === 1 ? 'bullet' : 'bullets'}
             </Text>
           </View>
+          {/* One finished bullet is already worth exporting. */}
+          {readyCount > 0 ? (
+            <View style={styles.headerActions}>
+              <CopyAllButton onPress={copyAll} />
+              <Button
+                label="Share all"
+                onPress={() => void shareAll()}
+                style={styles.exportButton}
+                variant="secondary"
+              />
+            </View>
+          ) : null}
         </View>
 
         {queueMessage ? <Text accessibilityRole="alert" style={styles.subtitle}>{queueMessage}</Text> : null}
@@ -201,26 +212,13 @@ export function CvVaultScreen() {
               entry={entry}
               onAddNumber={() => setNumberEntry(entry)}
               onCopy={() => copyOne(entry.text)}
-              onEdit={() => setEditEntry(entry)}
               onOpenTask={() => navigation.navigate('TaskDetail', { taskId: entry.taskId })}
-              onDelete={() => confirmDelete(entry)}
+              onMore={() => setMenuEntry(entry)}
               onRetry={() => retryCvEntry(entry.id)}
-              onShare={() => void shareOne(entry.text)}
               taskTitle={taskFor(entry.taskId)?.title ?? 'a deleted milestone'}
-              isDemoPreview={isDemoPreview}
             />
           ))
         )}
-
-        {readyCount > 1 ? (
-          <View style={styles.exportSection}>
-            <Text style={styles.exportLabel}>EXPORT ALL BULLETS</Text>
-            <View style={styles.headerActions}>
-              <CopyAllButton onPress={copyAll} />
-              <Button label="Share all" onPress={() => void shareAll()} style={styles.exportButton} variant="secondary" />
-            </View>
-          </View>
-        ) : null}
 
         <View style={styles.footer}>
           <Svg fill="none" height={14} viewBox="0 0 24 24" width={14}>
@@ -235,7 +233,7 @@ export function CvVaultScreen() {
             Review each bullet before sharing. Numbers only come from you.
           </Text>
         </View>
-        <PrivacyControls />
+        <PrivacyRow onPress={() => navigation.navigate('Settings')} />
       </ScrollView>
 
       {banner ? (
@@ -251,6 +249,35 @@ export function CvVaultScreen() {
         message={pendingUndo?.kind === 'cvEntry' ? pendingUndo.message : null}
         onDismiss={() => useAppStore.getState().clearPendingUndo()}
       />
+
+      <Sheet onClose={() => setMenuEntry(null)} title="Bullet actions" visible={menuEntry !== null}>
+        <Button
+          label="Share"
+          onPress={() => {
+            const entry = menuEntry;
+            setMenuEntry(null);
+            if (entry) void shareOne(entry.text);
+          }}
+          variant="secondary"
+        />
+        <Button
+          label="Edit"
+          onPress={() => {
+            setEditEntry(menuEntry);
+            setMenuEntry(null);
+          }}
+          variant="secondary"
+        />
+        <Button
+          label="Delete"
+          onPress={() => {
+            const entry = menuEntry;
+            setMenuEntry(null);
+            if (entry) confirmDelete(entry);
+          }}
+          variant="danger"
+        />
+      </Sheet>
 
       <EditBulletSheet entry={editEntry} onClose={() => setEditEntry(null)} visible={editEntry !== null} />
       <AddNumberSheet
@@ -293,12 +320,9 @@ interface BulletCardProps {
   taskTitle: string;
   onOpenTask: () => void;
   onCopy: () => void;
-  onEdit: () => void;
   onAddNumber: () => void;
   onRetry: () => void;
-  onShare: () => void;
-  onDelete: () => void;
-  isDemoPreview: boolean;
+  onMore: () => void;
 }
 
 function BulletCard({
@@ -306,12 +330,9 @@ function BulletCard({
   taskTitle,
   onOpenTask,
   onCopy,
-  onEdit,
   onAddNumber,
   onRetry,
-  onShare,
-  onDelete,
-  isDemoPreview,
+  onMore,
 }: BulletCardProps) {
   const theme = useTheme();
   const styles = useMemo(() => createStyles(theme), [theme]);
@@ -331,13 +352,13 @@ function BulletCard({
       ) : entry.status === 'failed' ? (
         <View style={styles.block}>
           <Text style={styles.bulletText}>Couldn&apos;t write this one</Text>
-          <View style={styles.actions}>
-            <Button label="Retry" onPress={onRetry} variant="secondary" />
+          <View style={styles.actionRow}>
+            <Button label="Retry" onPress={onRetry} style={styles.actionButton} />
+            <MoreButton onPress={onMore} />
           </View>
         </View>
       ) : (
         <View style={styles.block}>
-          <Text style={styles.draftLabel}>{isDemoPreview ? 'DEMO DRAFT' : 'CV BULLET'}</Text>
           {wantsNumber ? (
             <View style={styles.needsChip}>
               <Text style={styles.needsChipLabel}>Needs a number</Text>
@@ -357,23 +378,81 @@ function BulletCard({
             <Text style={styles.suggestion}>{entry.suggestions[0]}</Text>
           ) : null}
 
-          {wantsNumber ? (
-            <Button label="Add number" onPress={onAddNumber} />
-          ) : (
-            <View style={styles.actions}>
-              <View style={styles.actionRow}>
-                <Button label="Copy" onPress={onCopy} style={styles.actionButton} />
-                <Button label="Share" onPress={onShare} style={styles.actionButton} variant="secondary" />
-              </View>
-              <View style={styles.actionRow}>
-                <Button label="Edit" onPress={onEdit} style={styles.actionButton} variant="ghost" />
-                <Button label="Delete" onPress={onDelete} style={styles.actionButton} variant="ghost" />
-              </View>
-            </View>
-          )}
+          {/* One filled action; everything else lives behind the dots. */}
+          <View style={styles.actionRow}>
+            {wantsNumber ? (
+              <Button label="Add number" onPress={onAddNumber} style={styles.actionButton} />
+            ) : (
+              <Button label="Copy" onPress={onCopy} style={styles.actionButton} />
+            )}
+            <MoreButton onPress={onMore} />
+          </View>
         </View>
       )}
     </Card>
+  );
+}
+
+/** A quiet way through to the controls, which now live in Settings. */
+function PrivacyRow({ onPress }: { onPress: () => void }) {
+  const theme = useTheme();
+  const styles = useMemo(() => createStyles(theme), [theme]);
+  const press = usePressScale();
+
+  return (
+    <Animated.View style={press.style}>
+      <Pressable
+        accessibilityHint="Opens Settings"
+        accessibilityLabel="Privacy and AI"
+        accessibilityRole="button"
+        android_ripple={{ color: theme.colors.border }}
+        onPress={onPress}
+        onPressIn={press.onPressIn}
+        onPressOut={press.onPressOut}
+        style={styles.privacyRow}
+      >
+        <Text style={styles.privacyLabel}>Privacy & AI</Text>
+        <Svg fill="none" height={18} viewBox="0 0 24 24" width={18}>
+          <Path
+            d="M9 5 L16 12 L9 19"
+            stroke={theme.colors.textMuted}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth={2}
+          />
+        </Svg>
+      </Pressable>
+    </Animated.View>
+  );
+}
+
+/** Three dots: everything that is not the card's one primary action. */
+function MoreButton({ onPress }: { onPress: () => void }) {
+  const theme = useTheme();
+  const styles = useMemo(() => createStyles(theme), [theme]);
+  const press = usePressScale();
+
+  return (
+    <Animated.View style={press.style}>
+      <Pressable
+        accessibilityLabel="More actions for this bullet"
+        accessibilityRole="button"
+        android_ripple={{ borderless: true, color: theme.colors.border }}
+        onPress={onPress}
+        onPressIn={press.onPressIn}
+        onPressOut={press.onPressOut}
+        style={styles.moreButton}
+      >
+        <Svg fill="none" height={20} viewBox="0 0 24 24" width={20}>
+          <Path
+            d="M12 5.5 V5.6 M12 12 V12.1 M12 18.4 V18.5"
+            stroke={theme.colors.textSecondary}
+            strokeLinecap="round"
+            strokeWidth={3}
+          />
+        </Svg>
+      </Pressable>
+    </Animated.View>
   );
 }
 
@@ -420,14 +499,6 @@ const createStyles = (theme: Theme) =>
     headerActions: {
       flexDirection: 'row',
       gap: spacing.sm,
-    },
-    exportSection: {
-      gap: spacing.sm,
-      marginTop: spacing.sm,
-    },
-    exportLabel: {
-      color: theme.colors.textMuted,
-      ...typography.sectionLabel,
     },
     exportButton: { flex: 1 },
     headerCopy: {
@@ -481,6 +552,29 @@ const createStyles = (theme: Theme) =>
       backgroundColor: theme.colors.accentMuted,
       borderColor: theme.colors.accent,
     },
+    privacyRow: {
+      alignItems: 'center',
+      borderColor: theme.colors.border,
+      borderRadius: radii.lg,
+      borderWidth: 1,
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      minHeight: minTouchTarget,
+      paddingHorizontal: spacing.lg,
+      paddingVertical: spacing.sm,
+    },
+    privacyLabel: {
+      color: theme.colors.textSecondary,
+      fontFamily: typography.rowTitle.fontFamily,
+      fontSize: typography.caption.fontSize,
+      fontWeight: '600',
+    },
+    moreButton: {
+      alignItems: 'center',
+      height: minTouchTarget,
+      justifyContent: 'center',
+      width: minTouchTarget,
+    },
     taskRow: {
       alignItems: 'center',
       flexDirection: 'row',
@@ -498,10 +592,6 @@ const createStyles = (theme: Theme) =>
     block: {
       gap: spacing.md,
       marginTop: spacing.md,
-    },
-    draftLabel: {
-      color: theme.colors.textMuted,
-      ...typography.sectionLabel,
     },
     bulletText: {
       color: theme.colors.textPrimary,
@@ -532,12 +622,6 @@ const createStyles = (theme: Theme) =>
       fontFamily: typography.caption.fontFamily,
       fontSize: typography.caption.fontSize,
       lineHeight: typography.caption.lineHeight,
-    },
-    actions: {
-      borderTopColor: theme.colors.divider,
-      borderTopWidth: 1,
-      gap: spacing.xs,
-      paddingTop: spacing.md,
     },
     actionRow: {
       flexDirection: 'row',

@@ -24,7 +24,7 @@ export const repairLegacyMockCvEntries = (): void => {
     if (oldNumber === null) continue;
     const text = formatMockCvBullet(task.title, task.notes ?? '');
     const suggestions = oldNumber && oldNumber !== '[X]'
-      ? [`Earlier draft used ${oldNumber}. Edit to explain what it measures.`]
+      ? [`Check the number before you use this — an earlier draft said ${oldNumber}.`]
       : [];
     if (text) useAppStore.getState().updateCvEntry(entry.id, { text, suggestions });
   }
@@ -67,7 +67,7 @@ export const processPendingCvEntries = async (): Promise<void> => {
         });
       } catch (error) {
         if (error instanceof ApiError && error.kind === 'consent_required') {
-          useCvQueueStatus.setState({ message: 'CV generation paused. Review AI sharing below, then pull to retry. Your pending bullets are kept.' });
+          useCvQueueStatus.setState({ message: 'CV generation paused. Turn on AI sharing in Settings, then pull to retry. Your pending bullets are kept.' });
           return;
         }
         if (error instanceof ApiError && (error.kind === 'rate_limited' || error.kind === 'network' || error.kind === 'auth')) {

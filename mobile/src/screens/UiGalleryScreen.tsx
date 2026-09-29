@@ -122,6 +122,7 @@ export function UiGalleryScreen() {
             <Button label="Primary" onPress={() => {}} variant="primary" />
             <Button label="Secondary" onPress={() => {}} variant="secondary" />
             <Button label="Ghost" onPress={() => {}} variant="ghost" />
+            <Button label="Danger" onPress={() => {}} variant="danger" />
           </Row>
           <Row>
             <Button label="Loading" loading onPress={() => {}} variant="primary" />
