@@ -211,6 +211,34 @@ failure it shows that deletion did not happen and changes nothing.
   pauses sync and asks the user to sign in again. Signing back in to the same
   `uid` merges as usual, with no prompt.
 
+## 4c. Safety net for mass removal
+
+When a `PUT` replaces the stored snapshot and the change removes a large share
+of what was there, the server keeps the **previous snapshot for 30 days** before
+the replacement is stored. Thresholds apply **per record type**, and **either
+type triggering is enough**:
+
+| Type | Triggers when the `PUT` removes… |
+| --- | --- |
+| Targets | more than half of the previous live targets, **or** more than 2 of them |
+| CV entries | more than half of the previous live CV entries, **or** more than 10 of them |
+
+- **"Live records"** means records **without `deletedAt`**. Tombstones are not
+  live.
+- **"Removes"** means a record that was live in the previous snapshot and is, in
+  the new one, either a tombstone or absent.
+- The server keeps the **last 3 saved snapshots per user**. When a fourth is
+  saved, the oldest is dropped. Each is kept **30 days from the `PUT` that
+  triggered it**, and is removed when those 30 days end even if fewer than 3
+  are held.
+- A saved snapshot is the previous snapshot as stored, unchanged, including its
+  tombstones and `serverUpdatedAt`.
+- This is a safety net for the "Keep this phone's" path, which can remove a
+  whole account copy at once. **No restore endpoint is required yet**; support
+  restores from a saved snapshot by hand.
+- It changes nothing about the request or response: the `PUT` succeeds exactly
+  as before, and clients cannot see or read the saved snapshots.
+
 ## 5. Validation
 
 The server validates **structure**, not product rules. Migration on the client
