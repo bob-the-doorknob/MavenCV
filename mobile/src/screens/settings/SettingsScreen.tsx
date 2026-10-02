@@ -40,7 +40,8 @@ import { useTheme } from '../../theme/useTheme';
 import { formatExportText } from '../../utils/exportText';
 import { formatMonthYear } from '../../utils/targetDate';
 import { syncStatusCopy } from '../../utils/syncStatusCopy';
-import { conflictCopy } from '../../utils/accountCopy';
+import { accountRowModel, accountUiVisibility } from '../../utils/accountVisibility';
+import { startConflictPrompt } from '../../utils/conflictPrompt';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 
@@ -85,11 +86,17 @@ export function SettingsScreen() {
         `${doneCount} finished ${doneCount === 1 ? 'milestone' : 'milestones'} and the CV bullets they earned are kept. ${openCount} unfinished ${openCount === 1 ? 'milestone is' : 'milestones are'} replaced with a fresh set built from your current experience.`,
         [
           { text: 'Cancel', style: 'cancel' },
-          { text: 'Regenerate', onPress: () => navigation.navigate('RegenerateRoadmap') },
+          {
+            text: 'Regenerate',
+            onPress: () => navigation.navigate('RegenerateRoadmap'),
+          },
         ],
       );
     } catch (error) {
-      Alert.alert('Unable to regenerate', error instanceof Error ? error.message : 'Please try again.');
+      Alert.alert(
+        'Unable to regenerate',
+        error instanceof Error ? error.message : 'Please try again.',
+      );
     } finally {
       setRegenerating(false);
     }
@@ -167,18 +174,14 @@ export function SettingsScreen() {
     );
   };
 
+  // Non-dismissible, and every way out (Cancel, outside tap, Back) cancels the
+  // pending conflict the same way. See utils/conflictPrompt.ts.
   const askConflict = (cloud: DataCounts, device: DataCounts): void => {
-    const copy = conflictCopy(cloud, device);
-    const confirm = (step: { title: string; message: string; action: string }, choice: 'cloud' | 'device') =>
-      Alert.alert(step.title, step.message, [
-        { text: 'Cancel', style: 'cancel', onPress: () => void cancelConflict() },
-        { text: step.action, style: 'destructive', onPress: () => void resolveConflict(choice) },
-      ]);
-    Alert.alert(copy.choose.title, copy.choose.message, [
-      { text: 'Cancel', style: 'cancel', onPress: () => void cancelConflict() },
-      { text: "Keep account's", onPress: () => confirm(copy.confirmCloud, 'cloud') },
-      { text: "Keep this phone's", onPress: () => confirm(copy.confirmDevice, 'device') },
-    ]);
+    startConflictPrompt(cloud, device, {
+      cancel: () => void cancelConflict(),
+      resolve: (choice) => void resolveConflict(choice),
+      show: (spec) => Alert.alert(spec.title, spec.message, spec.buttons, spec.options),
+    });
   };
 
   const continueWithGoogle = async (): Promise<void> => {
@@ -187,12 +190,18 @@ export function SettingsScreen() {
     try {
       const result = await linkGoogle();
       if (result.kind === 'unavailable') {
-        Alert.alert("Google sign-in isn't available", "This build doesn't include Google sign-in yet.");
+        Alert.alert(
+          "Google sign-in isn't available",
+          "This build doesn't include Google sign-in yet.",
+        );
       } else if (result.kind === 'conflict') {
         askConflict(result.cloud, result.device);
       }
     } catch {
-      Alert.alert("Couldn't sign in", 'Check your connection and try again. Nothing on this phone was changed.');
+      Alert.alert(
+        "Couldn't sign in",
+        'Check your connection and try again. Nothing on this phone was changed.',
+      );
     } finally {
       setLinking(false);
     }
@@ -223,26 +232,17 @@ export function SettingsScreen() {
     );
   };
 
-  const accountRow = (() => {
-    if (account?.needsReauth) {
-      return {
-        title: 'Sign in again',
-        subtitle: 'Your Google session ended. Everything on this phone is kept; sync is paused.',
-        onPress: () => void continueWithGoogle(),
-      };
-    }
-    if (account) {
-      return { title: 'Signed in with Google', subtitle: account.email ?? 'Your Google account' };
-    }
-    if (!googleAvailable) {
-      return { title: 'Continue with Google', subtitle: "Sign-in isn't available in this build." };
-    }
-    return {
-      title: 'Continue with Google',
-      subtitle: linking ? 'Signing in' : 'Keep your roadmap and CV bullets on all your devices.',
-      onPress: () => void continueWithGoogle(),
-    };
-  })();
+  const accountRow = accountRowModel({
+    account,
+    providerAvailable: googleAvailable,
+    linking,
+  });
+  const ui = accountUiVisibility({
+    providerAvailable: googleAvailable,
+    hasAccount: account !== null,
+    linked,
+    devSimulation: canSimulateLinkedAccount(),
+  });
 
   const signOut = async (force: boolean): Promise<void> => {
     const result = await signOutAndClear({ force });
@@ -252,7 +252,11 @@ export function SettingsScreen() {
         "You're offline or sync is paused, so changes made on this phone since the last sync would be lost. Try again when you're back online, or sign out anyway.",
         [
           { text: 'Cancel', style: 'cancel' },
-          { text: 'Sign out anyway', style: 'destructive', onPress: () => void signOut(true) },
+          {
+            text: 'Sign out anyway',
+            style: 'destructive',
+            onPress: () => void signOut(true),
+          },
         ],
       );
     }
@@ -267,7 +271,11 @@ export function SettingsScreen() {
       'Your roadmaps and CV bullets stay in your account and come back when you sign in again. This removes them from this phone only.',
       [
         { text: 'Cancel', style: 'cancel' },
-        { text: 'Sign out and clear', style: 'destructive', onPress: () => void signOut(false) },
+        {
+          text: 'Sign out and clear',
+          style: 'destructive',
+          onPress: () => void signOut(false),
+        },
       ],
     );
   };
@@ -331,38 +339,49 @@ export function SettingsScreen() {
           </Card>
         </View>
 
-        <View style={styles.section}>
-          <SectionLabel>Account</SectionLabel>
-          <Card>
-            <SettingsRow isFirst {...accountRow} />
-          </Card>
-        </View>
-
-        <View style={styles.section}>
-          <SectionLabel>Sync</SectionLabel>
-          <Card>
-            <SettingsRow
-              isFirst
-              // A manual retry. It also lifts a date-check pause, like reopening the app.
-              onPress={() => {
-                if (linked) onForeground();
-              }}
-              subtitle={syncCopy.subtitle}
-              title={syncCopy.title}
-            />
-            {canSimulateLinkedAccount() ? (
+        {ui.showAccount && accountRow ? (
+          <View style={styles.section}>
+            <SectionLabel>Account</SectionLabel>
+            <Card>
               <SettingsRow
-                isFirst={false}
-                onPress={() => {
-                  setSimulateLinkedAccount(!simulateLinked);
-                  if (!simulateLinked) onAccountLinked();
-                }}
-                subtitle="Development build only. Syncs with the in-memory mock server."
-                title={simulateLinked ? 'Simulated account: on' : 'Simulated account: off'}
+                isFirst
+                subtitle={accountRow.subtitle}
+                title={accountRow.title}
+                {...(accountRow.action === 'link'
+                  ? { onPress: () => void continueWithGoogle() }
+                  : {})}
               />
-            ) : null}
-          </Card>
-        </View>
+            </Card>
+          </View>
+        ) : null}
+
+        {ui.showSync ? (
+          <View style={styles.section}>
+            <SectionLabel>Sync</SectionLabel>
+            <Card>
+              <SettingsRow
+                isFirst
+                // A manual retry, only when there is something to retry. It also
+                // lifts a date-check pause, like reopening the app. Unlinked, the
+                // row is information only — no chevron that does nothing.
+                subtitle={syncCopy.subtitle}
+                title={syncCopy.title}
+                {...(linked ? { onPress: onForeground } : {})}
+              />
+              {canSimulateLinkedAccount() ? (
+                <SettingsRow
+                  isFirst={false}
+                  onPress={() => {
+                    setSimulateLinkedAccount(!simulateLinked);
+                    if (!simulateLinked) onAccountLinked();
+                  }}
+                  subtitle="Development build only. Syncs with the in-memory mock server."
+                  title={simulateLinked ? 'Simulated account: on' : 'Simulated account: off'}
+                />
+              ) : null}
+            </Card>
+          </View>
+        ) : null}
 
         <View style={styles.section}>
           <SectionLabel>Data</SectionLabel>
@@ -426,7 +445,11 @@ export function SettingsScreen() {
         </View>
       </ScrollView>
 
-      <EditTargetSheet onClose={() => setEditVisible(false)} target={target} visible={editVisible} />
+      <EditTargetSheet
+        onClose={() => setEditVisible(false)}
+        target={target}
+        visible={editVisible}
+      />
       <ProUpsellSheet
         onClose={() => setUpsellVisible(false)}
         trigger="regenerate"
@@ -452,7 +475,11 @@ function SettingsRow({ title, subtitle, isFirst, isDanger = false, onPress }: Se
 
   if (!onPress) {
     return (
-      <View accessibilityLabel={`${title}. ${subtitle}`} accessible style={[styles.row, !isFirst && styles.rowDivided]}>
+      <View
+        accessibilityLabel={`${title}. ${subtitle}`}
+        accessible
+        style={[styles.row, !isFirst && styles.rowDivided]}
+      >
         <View style={styles.rowCopy}>
           <Text style={[styles.rowTitle, isDanger && styles.rowTitleDanger]}>{title}</Text>
           <Text style={styles.rowSubtitle}>{subtitle}</Text>

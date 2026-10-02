@@ -35,6 +35,7 @@ import {
   cancelConflict,
   configureAccount,
   deleteAccount,
+  hasPendingConflict,
   linkGoogle,
   resetAccountForTests,
   resolveConflict,
@@ -45,6 +46,7 @@ import { ApiError, type SyncHttpResult, type SyncMethod, type SyncRequestOptions
 import { createMockGoogleProvider, unavailableGoogleProvider } from './googleCredential';
 import { MockAuthBackend } from './mockAuthBackend';
 import { signOutAndClear } from './signOut';
+import { startConflictPrompt, type PromptSpec } from '../utils/conflictPrompt';
 import { configureSync, resetSyncForTests } from './sync';
 import { isLinkedAccount } from './syncAccount';
 import { MockSyncServer } from './syncMockServer';
@@ -329,5 +331,64 @@ describe('the dev simulate switch next to the real check', () => {
     expect(isLinkedAccount()).toBe(true);
     await setLinkedAccount(null);
     expect(isLinkedAccount()).toBe(false);
+  });
+});
+
+describe('leaving the conflict prompt', () => {
+  /** The prompt as Settings wires it, with the real account functions behind it. */
+  const openPrompt = (cloud: { roadmaps: number; bullets: number }, device: { roadmaps: number; bullets: number }) => {
+    const shown: PromptSpec[] = [];
+    startConflictPrompt(cloud, device, {
+      cancel: () => void cancelConflict(),
+      resolve: (choice) => void resolveConflict(choice),
+      show: (spec) => shown.push(spec),
+    });
+    return { current: (): PromptSpec => shown[shown.length - 1] as PromptSpec };
+  };
+
+  const conflictOnDeviceB = async () => {
+    await seedCloudFromDeviceA();
+    await switchToNewDevice();
+    addTarget('made on device B');
+    const anonymousUid = backend.uidForToken(await backend.currentIdToken());
+    const result = await linkGoogle();
+    if (result.kind !== 'conflict') throw new Error('expected a conflict');
+    return { result, anonymousUid, before: useAppStore.getState().targets };
+  };
+
+  it.each([
+    ['Cancel', (prompt: ReturnType<typeof openPrompt>) => prompt.current().buttons.find((b) => b.text === 'Cancel')?.onPress()],
+    ['an outside tap or Back', (prompt: ReturnType<typeof openPrompt>) => prompt.current().options.onDismiss()],
+  ])('leaves the device untouched when the user leaves with %s', async (_label, exit) => {
+    const { result, anonymousUid, before } = await conflictOnDeviceB();
+    const prompt = openPrompt(result.cloud, result.device);
+    expect(hasPendingConflict()).toBe(true);
+    const requestsBefore = calls.length;
+
+    exit(prompt);
+    await settle();
+
+    expect(hasPendingConflict()).toBe(false);
+    expect(useAppStore.getState().targets).toBe(before);
+    expect(useAppStore.getState().sync.ownerUid).toBeNull();
+    expect(getLinkedAccount()).toBeNull();
+    expect(isLinkedAccount()).toBe(false);
+    // Still the device's own anonymous user; the account's session was never adopted.
+    expect(backend.uidForToken(await backend.currentIdToken())).toBe(anonymousUid);
+    // Cancelling sends nothing: no push, no delete, no pull.
+    expect(calls).toHaveLength(requestsBefore);
+  });
+
+  it('leaves the device untouched when the user backs out of the second step', async () => {
+    const { result, before } = await conflictOnDeviceB();
+    const prompt = openPrompt(result.cloud, result.device);
+    prompt.current().buttons.find((b) => b.text === "Keep account's")?.onPress();
+
+    prompt.current().options.onDismiss();
+    await settle();
+
+    expect(hasPendingConflict()).toBe(false);
+    expect(useAppStore.getState().targets).toBe(before);
+    expect(getLinkedAccount()).toBeNull();
   });
 });

@@ -1,3 +1,4 @@
+import { SYNC_COPY_REVIEWED } from '../config/launch';
 import { mockGoogleIdToken } from './mockAuthBackend';
 
 /**
@@ -50,6 +51,9 @@ export interface MockGoogleOptions {
   cancel?: boolean;
 }
 
+/** Providers made by createMockGoogleProvider, so "mock" is told by identity, not by a label a real one could copy. */
+const mockProviders = new WeakSet<object>();
+
 /** Issues tokens the mock auth backend understands. Mock mode and tests only. */
 export const createMockGoogleProvider = (options: MockGoogleOptions = {}): GoogleCredentialProvider & {
   signedIn: () => boolean;
@@ -57,7 +61,7 @@ export const createMockGoogleProvider = (options: MockGoogleOptions = {}): Googl
   let signedIn = false;
   const sub = options.sub ?? 'mock-google-user';
   const email = options.email ?? 'student@example.com';
-  return {
+  const provider = {
     isAvailable: () => true,
     signIn: async () => {
       if (options.cancel) throw new GoogleSignInCancelled();
@@ -69,6 +73,8 @@ export const createMockGoogleProvider = (options: MockGoogleOptions = {}): Googl
     },
     signedIn: () => signedIn,
   };
+  mockProviders.add(provider);
+  return provider;
 };
 
 const isDevBuild = (): boolean => typeof __DEV__ !== 'undefined' && __DEV__;
@@ -78,13 +84,36 @@ let override: GoogleCredentialProvider | null = null;
 const devMockProvider = createMockGoogleProvider();
 
 /**
+ * THE one place the chosen Google sign-in library plugs in: return its
+ * GoogleCredentialProvider here. Null until a library is chosen. Wiring one in
+ * is blocked by a test until SYNC_COPY_REVIEWED is true — see
+ * docs/launch-checklist.md.
+ */
+const realGoogleProvider = (): GoogleCredentialProvider | null => null;
+
+/**
  * Mock mode in a development build gets the mock provider; every other build
- * gets the unavailable stub until a library is chosen. A release build can
- * never reach the mock, even with the mock flag set.
+ * gets the real provider if one is wired in, else the unavailable stub. A
+ * release build can never reach the mock, even with the mock flag set.
  */
 export const getGoogleProvider = (): GoogleCredentialProvider => {
   if (override) return override;
-  return isDevBuild() && isMockMode() ? devMockProvider : unavailableGoogleProvider;
+  if (isDevBuild() && isMockMode()) return devMockProvider;
+  return realGoogleProvider() ?? unavailableGoogleProvider;
+};
+
+/** A real provider is anything that is neither the unavailable stub nor a mock. */
+export const isRealGoogleProvider = (provider: GoogleCredentialProvider): boolean =>
+  provider !== unavailableGoogleProvider && !mockProviders.has(provider);
+
+/**
+ * Why this build must not ship, or null if it can. A real Google provider
+ * with SYNC_COPY_REVIEWED still false means account sync would go live before
+ * the privacy text, consent and policy were reviewed.
+ */
+export const googleProviderViolation = (): string | null => {
+  if (SYNC_COPY_REVIEWED || !isRealGoogleProvider(getGoogleProvider())) return null;
+  return 'A real Google sign-in provider is wired in while SYNC_COPY_REVIEWED is false. Finish docs/launch-checklist.md, then set SYNC_COPY_REVIEWED to true in src/config/launch.ts.';
 };
 
 /** Tests only. */
