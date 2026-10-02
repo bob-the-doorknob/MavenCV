@@ -9,6 +9,7 @@ import { BrandSplash } from './src/components/BrandSplash';
 import { Button } from './src/components/ui';
 import { RootNavigator } from './src/navigation/RootNavigator';
 import { configureRevenueCat } from './src/services/revenueCat';
+import { loadAccountState } from './src/services/accountState';
 import { startSync } from './src/services/sync';
 import { useAppStore, useStorageStatus } from './src/store/useAppStore';
 import type { Theme } from './src/theme/tokens';
@@ -38,12 +39,23 @@ export default function App() {
     if (!hydrated) {
       return undefined;
     }
-    return startSync((onActive) => {
-      const subscription = AppState.addEventListener('change', (next) => {
-        if (next === 'active') onActive();
+    // The linked account decides whether sync may run at all, so it is read
+    // first. Until it loads, "linked?" answers no — the safe default.
+    let stop: (() => void) | null = null;
+    let cancelled = false;
+    void loadAccountState().then(() => {
+      if (cancelled) return;
+      stop = startSync((onActive) => {
+        const subscription = AppState.addEventListener('change', (next) => {
+          if (next === 'active') onActive();
+        });
+        return () => subscription.remove();
       });
-      return () => subscription.remove();
     });
+    return () => {
+      cancelled = true;
+      stop?.();
+    };
   }, [hydrated]);
 
   // The splash also comes down on a storage failure — that state needs a

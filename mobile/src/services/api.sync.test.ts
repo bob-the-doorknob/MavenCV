@@ -4,7 +4,8 @@ vi.mock('./auth', () => ({ getAuthToken: async () => 'test-token' }));
 vi.mock('./appCheck', () => ({ getAppCheckToken: async () => 'test-app-check-token' }));
 
 import { ApiError, requestSync } from './api';
-import { SYNC_MAX_BODY_BYTES, mockSyncServer } from './syncMockServer';
+import { mockAuthBackend } from './mockAuthBackend';
+import { SYNC_MAX_BODY_BYTES, resetMockSyncServers } from './syncMockServer';
 
 const fetchSpy = vi.fn();
 
@@ -13,7 +14,8 @@ beforeEach(() => {
   vi.stubGlobal('fetch', fetchSpy);
   vi.stubEnv('EXPO_PUBLIC_USE_MOCK_API', 'true');
   vi.stubEnv('EXPO_PUBLIC_MOCK_FAIL', '');
-  mockSyncServer.reset();
+  resetMockSyncServers();
+  mockAuthBackend.reset();
   fetchSpy.mockReset();
 });
 
@@ -59,7 +61,7 @@ describe('requestSync in mock mode', () => {
     );
 
     expect(error).toMatchObject({ code: 'SYNC_PAYLOAD_TOO_LARGE' });
-    expect(mockSyncServer.get().body).toMatchObject({ serverUpdatedAt: null });
+    expect((await requestSync('GET')).body).toMatchObject({ serverUpdatedAt: null });
   });
 
   it('does not ask for AI consent — sync never reaches Gemini', async () => {

@@ -178,6 +178,12 @@ export class MockSyncServer {
     return { status: 200, body: this.stored };
   }
 
+  /** DELETE: forget everything stored. Idempotent, like the contract asks. */
+  public delete(): MockSyncResponse {
+    this.stored = null;
+    return { status: 204, body: {} };
+  }
+
   /** Test helper: what a second device would have pushed. */
   public seed(snapshot: Omit<StoredSnapshot, 'serverUpdatedAt'>): string {
     this.lastIssued = Math.max(this.now(), this.lastIssued + 1);
@@ -193,3 +199,22 @@ export class MockSyncServer {
 
 /** The one instance mock mode talks to. Memory only: it is gone on reload, by design. */
 export const mockSyncServer = new MockSyncServer();
+
+/**
+ * Mock mode's per-account storage: one snapshot per Firebase UID, as the real
+ * backend keys it. `mockSyncServer` stays as the default for callers that
+ * have no UID (single-account tests).
+ */
+const serversByUid = new Map<string, MockSyncServer>();
+export const mockSyncServerFor = (uid: string): MockSyncServer => {
+  let server = serversByUid.get(uid);
+  if (!server) {
+    server = new MockSyncServer();
+    serversByUid.set(uid, server);
+  }
+  return server;
+};
+export const resetMockSyncServers = (): void => {
+  serversByUid.clear();
+  mockSyncServer.reset();
+};

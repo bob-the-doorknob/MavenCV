@@ -25,6 +25,7 @@ import {
   chooseActiveTargetId,
   clampFutureStamps,
   fromRecords,
+  isTombstone as isTombstoneRecord,
   mergeSnapshots,
   monotonicStamp,
   recordsEqual,
@@ -59,6 +60,12 @@ export interface SyncMeta {
   /** The server's version this device last agreed with. Opaque; compared by equality. */
   baseServerUpdatedAt: string | null;
   lastSyncedAt: string | null;
+  /**
+   * The account this device's data belongs to. Set when an account is linked
+   * or restored; cleared with the data. Sync only runs when it matches the
+   * linked account, so one account's data can never be pushed into another.
+   */
+  ownerUid: string | null;
 }
 
 export interface PersistedAppState {
@@ -77,6 +84,7 @@ export const emptySyncMeta: SyncMeta = {
   revision: 0,
   baseServerUpdatedAt: null,
   lastSyncedAt: null,
+  ownerUid: null,
 };
 
 const emptyState: PersistedAppState = {
@@ -221,6 +229,7 @@ const normalizeSyncMeta = (value: unknown): SyncMeta => {
     revision: isNumber(value.revision) ? value.revision : 0,
     baseServerUpdatedAt: isString(value.baseServerUpdatedAt) ? value.baseServerUpdatedAt : null,
     lastSyncedAt: isString(value.lastSyncedAt) ? value.lastSyncedAt : null,
+    ownerUid: isString(value.ownerUid) ? value.ownerUid : null,
   };
 };
 
@@ -452,6 +461,13 @@ interface AppState extends PersistedAppState {
   setSyncMeta: (meta: Partial<SyncMeta>) => void;
   /** See clampFutureStamps. Marks dirty when anything was re-stamped. */
   repairFutureStamps: (now: number) => void;
+  /**
+   * The user chose this device's data over an account's existing copy.
+   * Tombstones every live cloud record the device does not have, so the next
+   * sync replaces the account copy instead of merging into it. Called only
+   * after the user has confirmed.
+   */
+  replaceAccountCopy: (cloud: SyncRecords, serverUpdatedAt: string | null) => void;
 }
 
 type AppSet = (partial: Partial<AppState> | ((state: AppState) => Partial<AppState>)) => void;
@@ -482,9 +498,12 @@ export const stampChanges = (
 
   if (patch.targets && patch.targets !== current.targets) {
     const previous = new Map(current.targets.map((target) => [target.id, target]));
-    const next = patch.targets.map((target) => {
-      const before = previous.get(target.id);
-      if (before === target) return target;
+    const next = patch.targets.map((incoming) => {
+      const before = previous.get(incoming.id);
+      if (before === incoming) return incoming;
+      // Normalised here, so what an action leaves in memory is exactly what a
+      // reload from disk would produce (see the invariant test).
+      const target = normalizeTarget(incoming);
       if (before && withoutStamp(before) === withoutStamp(target)) return before;
       changed = true;
       return { ...target, updatedAt: monotonicStamp(before?.updatedAt, now) };
@@ -509,9 +528,10 @@ export const stampChanges = (
 
   if (patch.cvEntries && patch.cvEntries !== current.cvEntries) {
     const previous = new Map(current.cvEntries.map((entry) => [entry.id, entry]));
-    const next = patch.cvEntries.map((entry) => {
-      const before = previous.get(entry.id);
-      if (before === entry) return entry;
+    const next = patch.cvEntries.map((incoming) => {
+      const before = previous.get(incoming.id);
+      if (before === incoming) return incoming;
+      const entry = normalizeCvEntry(incoming);
       if (before && withoutStamp(before) === withoutStamp(entry)) return before;
       changed = true;
       return { ...entry, updatedAt: monotonicStamp(before?.updatedAt, now) };
@@ -1070,6 +1090,32 @@ export const useAppStore = create<AppState>()(
       },
 
       setSyncMeta: (meta) => rawSet((state) => ({ sync: { ...state.sync, ...meta } })),
+
+      replaceAccountCopy: (cloud, serverUpdatedAt) =>
+        rawSet((state) => {
+          const now = Date.now();
+          const localTargets = new Set(state.targets.map((target) => target.id));
+          const localEntries = new Set(state.cvEntries.map((entry) => entry.id));
+          const targetTombs: TargetTombstone[] = cloud.targets
+            .filter((record) => !isTombstoneRecord(record) && !localTargets.has(record.id))
+            .map((record) => {
+              const stamp = monotonicStamp(record.updatedAt, now);
+              return { id: record.id, updatedAt: stamp, deletedAt: stamp };
+            });
+          const entryTombs: CvEntryTombstone[] = cloud.cvEntries
+            .filter((record) => !isTombstoneRecord(record) && !localEntries.has(record.id))
+            .map((record) => {
+              const stamp = monotonicStamp(record.updatedAt, now);
+              return { id: record.id, targetId: record.targetId, updatedAt: stamp, deletedAt: stamp };
+            });
+          return {
+            tombstones: {
+              targets: [...state.tombstones.targets, ...targetTombs],
+              cvEntries: [...state.tombstones.cvEntries, ...entryTombs],
+            },
+            sync: { ...state.sync, baseServerUpdatedAt: serverUpdatedAt, dirty: true, revision: state.sync.revision + 1 },
+          };
+        }),
 
       repairFutureStamps: (now) =>
         rawSet((state) => {

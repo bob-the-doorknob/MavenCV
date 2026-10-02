@@ -150,7 +150,7 @@ describe('stampChanges', () => {
     cvEntries: [],
     onboardingDraft: null,
     tombstones: { targets: [], cvEntries: [] },
-    sync: { dirty: false, revision: 7, baseServerUpdatedAt: 'v1', lastSyncedAt: null },
+    sync: { dirty: false, revision: 7, baseServerUpdatedAt: 'v1', lastSyncedAt: null, ownerUid: null },
     ...overrides,
   });
 
@@ -175,7 +175,7 @@ describe('migrating data saved before sync', () => {
     expect(migrated.targets[0]?.updatedAt).toBe('2026-01-01T00:00:00.000Z');
     expect(migrated.cvEntries[0]?.updatedAt).toBe('2026-01-02T00:00:00.000Z');
     expect(migrated.tombstones).toEqual({ targets: [], cvEntries: [] });
-    expect(migrated.sync).toEqual({ dirty: false, revision: 0, baseServerUpdatedAt: null, lastSyncedAt: null });
+    expect(migrated.sync).toEqual({ dirty: false, revision: 0, baseServerUpdatedAt: null, lastSyncedAt: null, ownerUid: null });
   });
 
   it('drops a malformed tombstone instead of refusing to load', () => {
@@ -188,7 +188,7 @@ describe('migrating data saved before sync', () => {
     });
 
     expect(migrated.tombstones).toEqual({ targets: [{ id: 'ok', updatedAt: 'a', deletedAt: 'a' }], cvEntries: [] });
-    expect(migrated.sync).toEqual({ dirty: false, revision: 3, baseServerUpdatedAt: null, lastSyncedAt: null });
+    expect(migrated.sync).toEqual({ dirty: false, revision: 3, baseServerUpdatedAt: null, lastSyncedAt: null, ownerUid: null });
   });
 });
 

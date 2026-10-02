@@ -20,6 +20,7 @@ share the AI routes' Gemini quota.
 | --- | --- | --- |
 | `GET` | `/api/sync` | Read the user's stored snapshot. |
 | `PUT` | `/api/sync` | Replace the stored snapshot, guarded by a version check. |
+| `DELETE` | `/api/sync` | Delete the account: its stored snapshot and its Firebase user. |
 
 Both use the same headers as the AI routes:
 
@@ -160,6 +161,56 @@ with `baseServerUpdatedAt` set to `snapshot.serverUpdatedAt`.
 
 ---
 
+## 4a. `DELETE /api/sync` — delete account
+
+Backs the app's **Delete account**. It is the only way the server copy is ever
+removed; "Sign out and clear this device" never calls it.
+
+In this order:
+
+1. Delete the stored snapshot for the token's `uid` (including tombstones).
+2. Delete the Firebase Auth user with the Admin SDK (`deleteUser(uid)`). This
+   **revokes the session on every device**: their refresh tokens stop working,
+   so no other phone can keep syncing into, or recreate, the deleted account.
+3. Answer **204** with no body.
+
+Rules:
+
+- **Idempotent.** Deleting an account with no stored snapshot still answers
+  204 once the Firebase user is gone. A client retrying after a timeout must
+  get success, not an error.
+- **All or nothing from the client's view.** If step 2 fails, answer 5xx even
+  though step 1 succeeded; the client keeps its local data and the user tries
+  again, and the retry finishes the job (step 1 is a no-op the second time).
+  Never answer 2xx unless the Firebase user is gone.
+- Anonymous tokens → `403 SYNC_ACCOUNT_REQUIRED`, as for the other methods.
+- Never calls Gemini.
+
+The client clears local state and its own session **only after a 2xx**. On any
+failure it shows that deletion did not happen and changes nothing.
+
+## 4b. Account semantics
+
+- **Linking keeps the UID.** The client links Google to the device's existing
+  anonymous Firebase user (`accounts:signInWithIdp` with that user's `idToken`).
+  The `uid` — and so the sync key — does not change.
+- **A Google account already linked elsewhere.** Firebase answers
+  `FEDERATED_USER_ID_ALREADY_LINKED`; the client then signs in to that existing
+  user instead. If the device has no data it restores the account copy. If the
+  device's data equals the account copy it simply continues. Otherwise the user
+  chooses which copy to keep, seeing counts for both, and nothing is removed
+  until they confirm. Choosing the device's copy replaces the account copy by
+  pushing tombstones for every account record the device lacks — ordinary
+  `PUT`s; the server needs no special case.
+- **The abandoned anonymous user** from such a switch is left in Firebase Auth.
+  It holds no synced data (anonymous users cannot sync). Clean it up with a
+  scheduled job if Auth user counts matter.
+- **Sign-out** drops the session on the device only. The account and its copy
+  stay; signing in again restores them.
+- **Session expiry.** If a linked user's refresh token is refused, the client
+  pauses sync and asks the user to sign in again. Signing back in to the same
+  `uid` merges as usual, with no prompt.
+
 ## 5. Validation
 
 The server validates **structure**, not product rules. Migration on the client
@@ -228,6 +279,7 @@ Messages are for logs; the app shows its own copy.
 | 401 | `AUTHENTICATION_REQUIRED` | `auth` | Retry with backoff after a token refresh. |
 | 401/403 | `APP_CHECK_REQUIRED` | `auth` | Retry with backoff. |
 | 403 | `SYNC_ACCOUNT_REQUIRED` | `auth` | Stop until the account is linked. |
+| 404 | — | — | Never sent by `/api/sync`; `DELETE` of nothing is 204. |
 | 409 | `SYNC_CONFLICT` | — (handled internally) | Merge with `snapshot`, retry once immediately. |
 | 413 | `SYNC_PAYLOAD_TOO_LARGE` | `invalid_response` | Stop retrying; status `error`. Local data untouched. |
 | 429 | `RATE_LIMIT_EXCEEDED` | `rate_limited` | Retry with backoff. |

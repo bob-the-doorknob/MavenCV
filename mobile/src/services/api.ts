@@ -7,7 +7,8 @@ import { clampEstimatedWeeks } from '../utils/schedule';
 import { getAuthToken } from './auth';
 import { getAppCheckToken } from './appCheck';
 import { hasAiConsent, loadConsent } from './privacy';
-import { SYNC_MAX_BODY_BYTES, mockSyncServer, utf8Length } from './syncMockServer';
+import { mockAuthBackend } from './mockAuthBackend';
+import { SYNC_MAX_BODY_BYTES, mockSyncServerFor, utf8Length } from './syncMockServer';
 
 /** normalizeRoadmapInput rejects an experience longer than this. */
 const MAX_EXPERIENCE_LENGTH = 4_000;
@@ -1284,6 +1285,16 @@ const mockExtractProfile = async (roleId: string | undefined): Promise<ExtractPr
 };
 
 export type SyncHttpResult = { kind: 'ok'; body: unknown } | { kind: 'conflict'; body: unknown };
+export type SyncMethod = 'GET' | 'PUT' | 'DELETE';
+
+export interface SyncRequestOptions {
+  /**
+   * Send this Firebase ID token instead of the device session's. The account
+   * flow uses it to read a cloud copy before deciding whether to adopt that
+   * account's session at all.
+   */
+  idToken?: string;
+}
 
 /**
  * GET or PUT /api/sync (docs/sync-contract.md). Unlike the AI routes there is
@@ -1292,7 +1303,11 @@ export type SyncHttpResult = { kind: 'ok'; body: unknown } | { kind: 'conflict';
  * caller to merge. Callers check for a linked account first; this function
  * does not, so it never decides on its own to touch the network.
  */
-export const requestSync = async (method: 'GET' | 'PUT', body?: unknown): Promise<SyncHttpResult> => {
+export const requestSync = async (
+  method: SyncMethod,
+  body?: unknown,
+  options: SyncRequestOptions = {},
+): Promise<SyncHttpResult> => {
   const json = method === 'PUT' ? JSON.stringify(body) : undefined;
   if (json !== undefined && utf8Length(json) > SYNC_MAX_BODY_BYTES) {
     // Refused before the network: the server would only refuse it too.
@@ -1305,7 +1320,18 @@ export const requestSync = async (method: 'GET' | 'PUT', body?: unknown): Promis
       throw new ApiError(failure, `Mock ${failure} failure.`);
     }
     await delay(150);
-    const response = method === 'GET' ? mockSyncServer.get() : mockSyncServer.put(json ?? '');
+    // Keyed by the account, as the real backend is. A revoked token is a 401.
+    const uid = options.idToken
+      ? mockAuthBackend.uidForToken(options.idToken)
+      : mockAuthBackend.uidForToken(await mockAuthBackend.currentIdToken());
+    if (!uid) throw new ApiError('auth', 'Authentication is required', 'AUTHENTICATION_REQUIRED');
+    const server = mockSyncServerFor(uid);
+    if (method === 'DELETE') {
+      server.delete();
+      mockAuthBackend.deleteUser(uid);
+      return { kind: 'ok', body: {} };
+    }
+    const response = method === 'GET' ? server.get() : server.put(json ?? '');
     if (response.status === 200) return { kind: 'ok', body: response.body };
     if (response.status === 409) return { kind: 'conflict', body: response.body };
     throw errorFromBody(response.status, response.body);
@@ -1318,7 +1344,7 @@ export const requestSync = async (method: 'GET' | 'PUT', body?: unknown): Promis
   } catch {
     throw new ApiError('auth', 'App verification failed. Use a configured development or store build.');
   }
-  const token = await getAuthToken();
+  const token = options.idToken ?? (await getAuthToken());
   if (!token) throw new ApiError('auth', 'Unable to authenticate. Check your connection and Firebase configuration.');
 
   const controller = new AbortController();
@@ -1343,6 +1369,8 @@ export const requestSync = async (method: 'GET' | 'PUT', body?: unknown): Promis
       }
     }
     if (!response.ok) throw await readErrorResponse(response);
+    // DELETE answers 204 with no body; nothing to parse.
+    if (method === 'DELETE') return { kind: 'ok', body: {} };
     try {
       return { kind: 'ok', body: await response.json() };
     } catch (error) {

@@ -1,6 +1,8 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
 
+import { getLinkedAccount, markNeedsReauth } from './accountState';
+
 const STORAGE_KEY = 'trajectory-firebase-anonymous-auth-v1';
 const FIREBASE_AUTH_URL = 'https://identitytoolkit.googleapis.com/v1/accounts:signUp';
 const FIREBASE_REFRESH_URL = 'https://securetoken.googleapis.com/v1/token';
@@ -78,9 +80,39 @@ const acquireIdToken = async (): Promise<string> => {
       return (await requestSession(`${FIREBASE_REFRESH_URL}?key=${encodeURIComponent(apiKey)}`, body, 'application/x-www-form-urlencoded', true)).idToken;
     } catch (error) {
       if (!(error instanceof InvalidRefreshToken)) throw error;
+      // A linked session that can no longer refresh: remember it so sync
+      // pauses and Settings asks the user to sign in again. The device still
+      // gets a fresh anonymous session below, so AI features keep working;
+      // signing in again re-attaches the account without touching local data.
+      if (getLinkedAccount()) await markNeedsReauth();
     }
   }
   return (await requestSession(`${FIREBASE_AUTH_URL}?key=${encodeURIComponent(apiKey)}`, JSON.stringify({ returnSecureToken: true }), 'application/json', false)).idToken;
+};
+
+export interface SessionTokens {
+  idToken: string;
+  refreshToken: string;
+  expiresAt: number;
+}
+
+/** Makes `session` this device's Firebase session (after a Google sign-in or link). */
+export const replaceSession = async (session: SessionTokens): Promise<void> => {
+  pending = undefined;
+  await SecureStore.setItemAsync(STORAGE_KEY, session.refreshToken);
+  if (await SecureStore.getItemAsync(STORAGE_KEY) !== session.refreshToken) throw new Error('Could not securely save session');
+  cached = { ...session };
+};
+
+/**
+ * Forgets this device's session. The next token request signs in
+ * anonymously from scratch. Used by sign-out and account deletion.
+ */
+export const clearSession = async (): Promise<void> => {
+  pending = undefined;
+  cached = undefined;
+  await SecureStore.deleteItemAsync(STORAGE_KEY);
+  if (await AsyncStorage.getItem(STORAGE_KEY) !== null) await AsyncStorage.removeItem(STORAGE_KEY);
 };
 
 export const getAnonymousIdToken = (): Promise<string> => {

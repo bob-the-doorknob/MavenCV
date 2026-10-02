@@ -14,6 +14,17 @@ import { resolveRoleTitle } from '../../data/roles';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { checkProEntitlement } from '../../services/proStatus';
 import { restorePurchases } from '../../services/revenueCat';
+import {
+  AccountDeletionFailed,
+  cancelConflict,
+  deleteAccount,
+  linkGoogle,
+  resolveConflict,
+  type DataCounts,
+} from '../../services/account';
+import { useAccountState } from '../../services/accountState';
+import { getGoogleProvider } from '../../services/googleCredential';
+import { signOutAndClear } from '../../services/signOut';
 import { onAccountLinked, onForeground, useSyncStatus } from '../../services/sync';
 import {
   canSimulateLinkedAccount,
@@ -29,6 +40,7 @@ import { useTheme } from '../../theme/useTheme';
 import { formatExportText } from '../../utils/exportText';
 import { formatMonthYear } from '../../utils/targetDate';
 import { syncStatusCopy } from '../../utils/syncStatusCopy';
+import { conflictCopy } from '../../utils/accountCopy';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 
@@ -49,6 +61,9 @@ export function SettingsScreen() {
   const { status: syncStatus, lastSyncedAt } = useSyncStatus();
   // Read so the row re-renders when the dev switch flips.
   const simulateLinked = useSyncDevAccount((state) => state.simulateLinked);
+  const account = useAccountState((state) => state.account);
+  const [linking, setLinking] = useState(false);
+  const googleAvailable = getGoogleProvider().isAvailable();
   const linked = isLinkedAccount();
   const syncCopy = syncStatusCopy(syncStatus, linked, lastSyncedAt, Date.now());
   const [regenerating, setRegenerating] = useState(false);
@@ -152,6 +167,111 @@ export function SettingsScreen() {
     );
   };
 
+  const askConflict = (cloud: DataCounts, device: DataCounts): void => {
+    const copy = conflictCopy(cloud, device);
+    const confirm = (step: { title: string; message: string; action: string }, choice: 'cloud' | 'device') =>
+      Alert.alert(step.title, step.message, [
+        { text: 'Cancel', style: 'cancel', onPress: () => void cancelConflict() },
+        { text: step.action, style: 'destructive', onPress: () => void resolveConflict(choice) },
+      ]);
+    Alert.alert(copy.choose.title, copy.choose.message, [
+      { text: 'Cancel', style: 'cancel', onPress: () => void cancelConflict() },
+      { text: "Keep account's", onPress: () => confirm(copy.confirmCloud, 'cloud') },
+      { text: "Keep this phone's", onPress: () => confirm(copy.confirmDevice, 'device') },
+    ]);
+  };
+
+  const continueWithGoogle = async (): Promise<void> => {
+    if (linking) return;
+    setLinking(true);
+    try {
+      const result = await linkGoogle();
+      if (result.kind === 'unavailable') {
+        Alert.alert("Google sign-in isn't available", "This build doesn't include Google sign-in yet.");
+      } else if (result.kind === 'conflict') {
+        askConflict(result.cloud, result.device);
+      }
+    } catch {
+      Alert.alert("Couldn't sign in", 'Check your connection and try again. Nothing on this phone was changed.');
+    } finally {
+      setLinking(false);
+    }
+  };
+
+  const confirmDeleteAccount = (): void => {
+    Alert.alert(
+      'Delete your account?',
+      "This permanently deletes your account and the roadmaps and CV bullets stored in it, on every device, and clears this phone. This can't be undone.",
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete account',
+          style: 'destructive',
+          onPress: () => {
+            deleteAccount().catch((error: unknown) => {
+              // Never imply success: nothing was cleared here, and we say so.
+              Alert.alert(
+                'Account not deleted',
+                error instanceof AccountDeletionFailed
+                  ? "Your account couldn't be deleted, so nothing was removed from this phone. Check your connection and try again."
+                  : 'Something went wrong. Nothing was removed from this phone. Try again.',
+              );
+            });
+          },
+        },
+      ],
+    );
+  };
+
+  const accountRow = (() => {
+    if (account?.needsReauth) {
+      return {
+        title: 'Sign in again',
+        subtitle: 'Your Google session ended. Everything on this phone is kept; sync is paused.',
+        onPress: () => void continueWithGoogle(),
+      };
+    }
+    if (account) {
+      return { title: 'Signed in with Google', subtitle: account.email ?? 'Your Google account' };
+    }
+    if (!googleAvailable) {
+      return { title: 'Continue with Google', subtitle: "Sign-in isn't available in this build." };
+    }
+    return {
+      title: 'Continue with Google',
+      subtitle: linking ? 'Signing in' : 'Keep your roadmap and CV bullets on all your devices.',
+      onPress: () => void continueWithGoogle(),
+    };
+  })();
+
+  const signOut = async (force: boolean): Promise<void> => {
+    const result = await signOutAndClear({ force });
+    if (result === 'unsynced') {
+      Alert.alert(
+        "Some changes haven't reached your account",
+        "You're offline or sync is paused, so changes made on this phone since the last sync would be lost. Try again when you're back online, or sign out anyway.",
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Sign out anyway', style: 'destructive', onPress: () => void signOut(true) },
+        ],
+      );
+    }
+  };
+
+  // With a linked account a plain wipe would come straight back on the next
+  // pull, so the action becomes signing out. The account keeps its copy;
+  // removing that is Delete account's job.
+  const confirmSignOut = (): void => {
+    Alert.alert(
+      'Sign out and clear this device?',
+      'Your roadmaps and CV bullets stay in your account and come back when you sign in again. This removes them from this phone only.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Sign out and clear', style: 'destructive', onPress: () => void signOut(false) },
+      ],
+    );
+  };
+
   return (
     <View style={styles.screen}>
       <View style={[styles.topBar, { paddingTop: insets.top + spacing.sm }]}>
@@ -212,6 +332,13 @@ export function SettingsScreen() {
         </View>
 
         <View style={styles.section}>
+          <SectionLabel>Account</SectionLabel>
+          <Card>
+            <SettingsRow isFirst {...accountRow} />
+          </Card>
+        </View>
+
+        <View style={styles.section}>
           <SectionLabel>Sync</SectionLabel>
           <Card>
             <SettingsRow
@@ -246,13 +373,40 @@ export function SettingsScreen() {
               subtitle="Share your target, milestones and CV bullets as plain text"
               title="Export everything"
             />
-            <SettingsRow
-              isDanger
-              isFirst={false}
-              onPress={confirmReset}
-              subtitle="Deletes every roadmap and CV bullet on this device"
-              title="Reset all data"
-            />
+            {account ? (
+              <>
+                <SettingsRow
+                  isDanger
+                  isFirst={false}
+                  onPress={confirmSignOut}
+                  subtitle="Removes your data from this phone. Your account keeps its copy."
+                  title="Sign out and clear this device"
+                />
+                <SettingsRow
+                  isDanger
+                  isFirst={false}
+                  onPress={confirmDeleteAccount}
+                  subtitle="Deletes your account and everything stored in it, on every device"
+                  title="Delete account"
+                />
+              </>
+            ) : linked ? (
+              <SettingsRow
+                isDanger
+                isFirst={false}
+                onPress={confirmSignOut}
+                subtitle="Removes your data from this phone. Your account keeps its copy."
+                title="Sign out and clear this device"
+              />
+            ) : (
+              <SettingsRow
+                isDanger
+                isFirst={false}
+                onPress={confirmReset}
+                subtitle="Deletes every roadmap and CV bullet on this device"
+                title="Reset all data"
+              />
+            )}
           </Card>
         </View>
 
@@ -287,13 +441,25 @@ interface SettingsRowProps {
   subtitle: string;
   isFirst: boolean;
   isDanger?: boolean;
-  onPress: () => void;
+  /** Without one the row is information only: no chevron, no press. */
+  onPress?: () => void;
 }
 
 function SettingsRow({ title, subtitle, isFirst, isDanger = false, onPress }: SettingsRowProps) {
   const theme = useTheme();
   const styles = useMemo(() => createStyles(theme), [theme]);
   const press = usePressScale();
+
+  if (!onPress) {
+    return (
+      <View accessibilityLabel={`${title}. ${subtitle}`} accessible style={[styles.row, !isFirst && styles.rowDivided]}>
+        <View style={styles.rowCopy}>
+          <Text style={[styles.rowTitle, isDanger && styles.rowTitleDanger]}>{title}</Text>
+          <Text style={styles.rowSubtitle}>{subtitle}</Text>
+        </View>
+      </View>
+    );
+  }
 
   return (
     <Animated.View style={press.style}>
