@@ -1,0 +1,20 @@
+[
+  {
+    "advisory": "GHSA-86w9-cpqp-85rv",
+    "package": "node-forge",
+    "severity": "high",
+    "scope": "dev-tooling",
+    "justification": "Dev tooling only: pulled in by @expo/cli for Expo code signing, never imported by the app or the backend. No patched release exists on npm (latest 1.4.0 is the last vulnerable version).",
+    "owner": "Gejx3919",
+    "expires": "2026-11-01"
+  },
+  {
+    "advisory": "GHSA-m9gg-hp2v-232j",
+    "package": "@grpc/grpc-js",
+    "severity": "high",
+    "scope": "unreachable",
+    "justification": "grpc-js 1.9.16 is pulled in by firebase / @react-native-firebase/app (@firebase/firestore pins ~1.9.0), not imported by app code, and is a Node-only library that cannot run in React Native. No fix within the allowed range: @firebase/firestore keeps ~1.9.0 even in the latest firebase.",
+    "owner": "Gejx3919",
+    "expires": "2026-11-01"
+  }
+]
