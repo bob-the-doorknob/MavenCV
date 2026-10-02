@@ -51,3 +51,15 @@ describe('accountRowModel', () => {
     }
   });
 });
+
+describe('an account that could not be read', () => {
+  it('shows the Account section even in a build with no sign-in', () => {
+    expect(accountUiVisibility({ ...none, accountReadFailed: true })).toEqual({ showAccount: true, showSync: false });
+  });
+
+  it('says so, and offers a retry rather than looking signed out', () => {
+    const row = accountRowModel({ account: null, providerAvailable: false, linking: false, accountReadFailed: true });
+    expect(row).toMatchObject({ title: "Couldn't load your account", action: 'retryRead' });
+    expect(row?.subtitle).toContain('safe');
+  });
+});

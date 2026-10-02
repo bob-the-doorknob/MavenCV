@@ -1,6 +1,6 @@
 import { parseIncomingRecords, useAppStore } from '../store/useAppStore';
 import { isTombstone, recordsEqual, stripForPush, toRecords, type SyncRecords } from '../utils/syncMerge';
-import { getLinkedAccount, setLinkedAccount } from './accountState';
+import { getLinkedAccount, setLinkedAccount, useAccountState, type LinkedAccount } from './accountState';
 import { ApiError, requestSync, type SyncHttpResult, type SyncMethod, type SyncRequestOptions } from './api';
 import {
   GoogleSignInCancelled,
@@ -85,16 +85,56 @@ const deviceRecords = (): SyncRecords => {
   return stripForPush(parsed ?? toRecords(state));
 };
 
-/** Commits to an account: its session becomes the device's, and sync starts. */
+/** Committing failed and was rolled back: nothing on the device changed. */
+export class AccountCommitFailed extends Error {
+  public constructor() {
+    super('Could not save the account on this phone');
+    this.name = 'AccountCommitFailed';
+  }
+}
+
+/**
+ * Commits to an account. Two writes must both succeed — the saved account,
+ * then the session — and if either fails the other is undone, so "Nothing on
+ * this phone was changed" stays true. The account is saved first because it
+ * can be undone; a replaced session cannot be put back.
+ *
+ * Sync is not started here: the caller applies any conflict choice first, so
+ * the first pull never merges two copies the user asked to keep apart.
+ */
 const commit = async (session: IdpSession): Promise<void> => {
-  await deps().backend.adoptSession(session);
-  await setLinkedAccount({
+  const previous: LinkedAccount | null = getLinkedAccount();
+  const next: LinkedAccount = {
     uid: session.uid,
     provider: 'google.com',
     ...(session.email ? { email: session.email } : {}),
     needsReauth: false,
-  });
+  };
+  try {
+    await setLinkedAccount(next);
+  } catch {
+    // Memory was updated before the failed write; put it back.
+    useAccountState.setState({ account: previous });
+    throw new AccountCommitFailed();
+  }
+  try {
+    await deps().backend.adoptSession(session);
+  } catch {
+    try {
+      await setLinkedAccount(previous);
+    } catch {
+      useAccountState.setState({ account: previous });
+    }
+    throw new AccountCommitFailed();
+  }
+  // Synchronous from here on: no await between owning the data and the
+  // caller's next step, so no sync can start in between.
   useAppStore.getState().setSyncMeta({ ownerUid: session.uid });
+};
+
+/** Commit, then start syncing. For the paths with no conflict choice. */
+const commitAndSync = async (session: IdpSession): Promise<void> => {
+  await commit(session);
   onAccountLinked();
 };
 
@@ -130,7 +170,7 @@ export const linkGoogle = async (): Promise<LinkResult> => {
 
   try {
     const linked = await backend.signInWithGoogle(credential.idToken, await backend.currentIdToken());
-    await commit(linked);
+    await commitAndSync(linked);
     return { kind: 'linked' };
   } catch (error) {
     if (!(error instanceof IdentityError) || error.code !== 'FEDERATED_USER_ID_ALREADY_LINKED') {
@@ -145,7 +185,7 @@ export const linkGoogle = async (): Promise<LinkResult> => {
   // Signing back in to the account this device's data already belongs to
   // (after a session expired): nothing to choose, sync merges as usual.
   if (useAppStore.getState().sync.ownerUid === existing.uid) {
-    await commit(existing);
+    await commitAndSync(existing);
     return { kind: 'linked' };
   }
 
@@ -154,13 +194,16 @@ export const linkGoogle = async (): Promise<LinkResult> => {
   const deviceLive = liveOnly(device);
 
   if (deviceLive.targets.length === 0 && deviceLive.cvEntries.length === 0) {
-    // A new device, or one cleared by sign-out: just restore.
-    useAppStore.getState().resetAll();
+    // A new device, or one cleared by sign-out: just restore. Committed first,
+    // so a failed commit leaves the device exactly as it was.
     await commit(existing);
+    useAppStore.getState().resetAll();
+    useAppStore.getState().setSyncMeta({ ownerUid: existing.uid });
+    onAccountLinked();
     return { kind: 'restored' };
   }
   if (recordsEqual(deviceLive, liveOnly(cloud.records))) {
-    await commit(existing);
+    await commitAndSync(existing);
     return { kind: 'linked' };
   }
 
@@ -179,12 +222,21 @@ export const resolveConflict = async (choice: ConflictChoice): Promise<void> => 
   if (!conflict) throw new Error('No account conflict to resolve');
   pendingConflict = null;
 
+  // Commit first: if it fails, the user's choice has not touched either copy.
+  try {
+    await commit(conflict.session);
+  } catch (error) {
+    // Still undecided, so the user can try again from the same prompt state.
+    pendingConflict = conflict;
+    throw error;
+  }
   if (choice === 'cloud') {
     useAppStore.getState().resetAll();
+    useAppStore.getState().setSyncMeta({ ownerUid: conflict.session.uid });
   } else {
     useAppStore.getState().replaceAccountCopy(conflict.cloud, conflict.serverUpdatedAt);
   }
-  await commit(conflict.session);
+  onAccountLinked();
 };
 
 /** The user backed out: forget the other account; this device stays as it was. */

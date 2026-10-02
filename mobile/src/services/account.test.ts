@@ -34,6 +34,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAppStore, useStorageStatus } from '../store/useAppStore';
 import { localCopyKeys } from './localData';
 import {
+  AccountCommitFailed,
   AccountDeletionFailed,
   cancelConflict,
   configureAccount,
@@ -485,5 +486,70 @@ describe('every wipe path deletes the local copies', () => {
     await seedCopies();
     await expect(signOutAndClear()).resolves.toBe('cleared');
     expect(await remaining()).toEqual([]);
+  });
+});
+
+describe('sign-out while a sync is already running', () => {
+  it('waits for that sync and its queued push, instead of reporting unsynced changes', async () => {
+    const { uid } = await seedCloudFromDeviceA();
+    let release: () => void = () => {};
+    hold = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    onForeground(); // a pull is now in flight
+    await settle();
+    hold = null;
+    const targetId = addTarget('made just before signing out');
+
+    const signingOut = signOutAndClear();
+    release();
+    await settle();
+
+    await expect(signingOut).resolves.toBe('cleared');
+    // The new milestone reached the account before the device was cleared.
+    expect(cloudOf(uid).targets.map((target) => target.id)).toContain(targetId);
+    expect(useAppStore.getState().targets).toEqual([]);
+  });
+});
+
+describe('a link whose commit fails leaves the device as it was', () => {
+  it('rolls back when the session cannot be adopted', async () => {
+    const anonymousUid = backend.uidForToken(await backend.currentIdToken());
+    const targetId = addTarget();
+    const failingBackend = Object.create(backend) as MockAuthBackend;
+    failingBackend.adoptSession = async () => {
+      throw new Error('SecureStore write failed');
+    };
+    failingBackend.currentIdToken = () => backend.currentIdToken();
+    failingBackend.signInWithGoogle = (token, link) => backend.signInWithGoogle(token, link);
+    configureAccount({ provider: () => google, backend: failingBackend, request: transport });
+
+    await expect(linkGoogle()).rejects.toBeInstanceOf(AccountCommitFailed);
+
+    expect(getLinkedAccount()).toBeNull();
+    expect(useAppStore.getState().sync.ownerUid).toBeNull();
+    expect(isLinkedAccount()).toBe(false);
+    expect(useAppStore.getState().targets.map((target) => target.id)).toEqual([targetId]);
+    expect(backend.uidForToken(await backend.currentIdToken())).toBe(anonymousUid);
+    expect(calls).toEqual([]);
+  });
+
+  it('keeps both copies, and the choice open, when a conflict commit fails', async () => {
+    await seedCloudFromDeviceA();
+    await switchToNewDevice();
+    const localId = addTarget('made on device B');
+    await linkGoogle();
+    const failingBackend = Object.create(backend) as MockAuthBackend;
+    failingBackend.adoptSession = async () => {
+      throw new Error('SecureStore write failed');
+    };
+    configureAccount({ provider: () => google, backend: failingBackend, request: transport });
+
+    await expect(resolveConflict('cloud')).rejects.toBeInstanceOf(AccountCommitFailed);
+
+    // "Keep account's" would have cleared this phone; the failure must not have.
+    expect(useAppStore.getState().targets.map((target) => target.id)).toEqual([localId]);
+    expect(getLinkedAccount()).toBeNull();
+    expect(hasPendingConflict()).toBe(true);
   });
 });

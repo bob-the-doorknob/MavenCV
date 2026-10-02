@@ -270,20 +270,34 @@ const run = async (pull: boolean): Promise<void> => {
 };
 
 /** Runs one sync, or folds the request into the one already running. Never throws. */
-export const syncNow = async ({ pull }: { pull: boolean }): Promise<void> => {
+let draining: Promise<void> | null = null;
+
+/**
+ * Runs one sync, or folds the request into the one already running. Never
+ * throws. The promise resolves only once every run asked for so far —
+ * including this one, if it was folded in — has finished, so a caller that
+ * awaits it (sign-out checking for unsynced changes) sees the real outcome.
+ */
+export const syncNow = ({ pull }: { pull: boolean }): Promise<void> => {
   if (running) {
     queued = { pull: pull || (queued?.pull ?? false) };
-    return;
+    return draining ?? Promise.resolve();
   }
   running = true;
-  try {
-    await run(pull);
-  } finally {
-    running = false;
-    const next = queued;
-    queued = null;
-    if (next) void syncNow(next);
-  }
+  draining = (async () => {
+    try {
+      let next: { pull: boolean } | null = { pull };
+      while (next) {
+        queued = null;
+        await run(next.pull);
+        next = queued;
+      }
+    } finally {
+      running = false;
+      draining = null;
+    }
+  })();
+  return draining;
 };
 
 /** Debounced push: one request per burst of edits, ~3 s after the last. */
@@ -347,6 +361,7 @@ export const resetSyncForTests = (): void => {
   undoTimer = clearTimer(undoTimer);
   running = false;
   queued = null;
+  draining = null;
   backoffIndex = 0;
   blockedUntilForeground = false;
   deps = defaultDeps;

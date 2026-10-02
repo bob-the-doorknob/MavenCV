@@ -25,9 +25,19 @@ export interface LinkedAccount {
 
 const STORAGE_KEY = 'maven-linked-account-v1';
 
-export const useAccountState = create<{ account: LinkedAccount | null; loaded: boolean }>(() => ({
+export const useAccountState = create<{
+  account: LinkedAccount | null;
+  loaded: boolean;
+  /**
+   * The saved account could not be read (SecureStore failed). Sync stays off —
+   * the safe answer — but Settings says so and offers a retry, instead of
+   * silently looking signed out.
+   */
+  readFailed: boolean;
+}>(() => ({
   account: null,
   loaded: false,
+  readFailed: false,
 }));
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -64,10 +74,11 @@ const persist = async (account: LinkedAccount | null): Promise<void> => {
 export const loadAccountState = async (): Promise<void> => {
   try {
     const store = await secureStore();
-    useAccountState.setState({ account: parse(await store.getItemAsync(STORAGE_KEY)), loaded: true });
+    useAccountState.setState({ account: parse(await store.getItemAsync(STORAGE_KEY)), loaded: true, readFailed: false });
   } catch {
-    // Unreadable means "not linked": the safe answer is to not sync.
-    useAccountState.setState({ account: null, loaded: true });
+    // Unreadable means "not linked" for sync — the safe answer — but it is
+    // recorded, so the user is told rather than appearing signed out.
+    useAccountState.setState({ account: null, loaded: true, readFailed: true });
   }
 };
 
@@ -75,7 +86,7 @@ export const loadAccountState = async (): Promise<void> => {
 export const setLinkedAccount = async (account: LinkedAccount | null): Promise<void> => {
   // Whose data this device holds just changed; in-flight work for the old state is stale.
   bumpEpoch();
-  useAccountState.setState({ account, loaded: true });
+  useAccountState.setState({ account, loaded: true, readFailed: false });
   await persist(account);
 };
 

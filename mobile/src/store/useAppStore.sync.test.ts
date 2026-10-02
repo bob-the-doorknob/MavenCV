@@ -223,3 +223,64 @@ describe('resetAll', () => {
     expect(useAppStore.getState().sync.dirty).toBe(false);
   });
 });
+
+describe('a bullet that arrives while its entry is held for undo', () => {
+  it('is kept on the held entry, so undoing a deleted milestone restores it finished', () => {
+    addTarget();
+    useAppStore.getState().completeTask('task-1', 'Shipped it.');
+    const entryId = useAppStore.getState().cvEntries[0]?.id as string;
+    // Not ready yet, so deleting the milestone takes the entry with it, held for undo.
+    useAppStore.getState().updateCvEntry(entryId, { status: 'failed' });
+    useAppStore.getState().updateCvEntry(entryId, { status: 'pending' });
+    useAppStore.getState().deleteTask('task-1');
+    expect(useAppStore.getState().cvEntries).toEqual([]);
+
+    // The generation that was already running finishes now.
+    useAppStore.getState().updateCvEntry(entryId, { status: 'ready', text: 'Built 1 API.' });
+    useAppStore.getState().undoDelete();
+
+    const restored = useAppStore.getState().cvEntries.find((entry) => entry.id === entryId);
+    expect(restored).toMatchObject({ status: 'ready', text: 'Built 1 API.' });
+  });
+
+  it('does the same for a deleted bullet', () => {
+    const targetId = addTarget();
+    const entryId = useAppStore.getState().addCvEntry({ targetId, taskId: 'task-1', status: 'pending', text: '' });
+    useAppStore.getState().deleteCvEntry(entryId);
+
+    useAppStore.getState().updateCvEntry(entryId, { status: 'ready', text: 'Built 1 API.' });
+    useAppStore.getState().undoDelete();
+
+    expect(useAppStore.getState().cvEntries[0]).toMatchObject({ id: entryId, status: 'ready' });
+  });
+
+  it('is dropped once the undo has gone, without resurrecting anything', () => {
+    const targetId = addTarget();
+    const entryId = useAppStore.getState().addCvEntry({ targetId, taskId: 'task-1', status: 'pending', text: '' });
+    useAppStore.getState().deleteCvEntry(entryId);
+    useAppStore.getState().clearPendingUndo();
+
+    useAppStore.getState().updateCvEntry(entryId, { status: 'ready', text: 'Built 1 API.' });
+
+    expect(useAppStore.getState().cvEntries).toEqual([]);
+  });
+});
+
+describe('the onboarding draft', () => {
+  it('is cleared in the same write that adds the target it produced', () => {
+    useAppStore.getState().saveOnboardingDraft({
+      step: 'readyBy', roleId: 'software-engineer', customTitle: '', level: 'internship',
+      employer: '', experience: 'x', targetDate: null, savedAt: '2026-10-02T00:00:00.000Z',
+    });
+    const states: Array<{ targets: number; draft: boolean }> = [];
+    const unsubscribe = useAppStore.subscribe((state) =>
+      states.push({ targets: state.targets.length, draft: state.onboardingDraft !== null }),
+    );
+
+    addTarget();
+    unsubscribe();
+
+    // One change: there is never a moment with the target saved and the draft still there.
+    expect(states).toEqual([{ targets: 1, draft: false }]);
+  });
+});

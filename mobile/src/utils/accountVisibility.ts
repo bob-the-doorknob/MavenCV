@@ -15,28 +15,40 @@ export interface AccountUiInput {
   linked: boolean;
   /** canSimulateLinkedAccount(): development build in mock mode. */
   devSimulation: boolean;
+  /** The saved account could not be read; there may be an account we cannot see. */
+  accountReadFailed?: boolean;
 }
 
 export const accountUiVisibility = (input: AccountUiInput): { showAccount: boolean; showSync: boolean } => {
   const visible = input.providerAvailable || input.hasAccount || input.linked || input.devSimulation;
-  return { showAccount: visible, showSync: visible };
+  // A failed read must be visible even in a build with no sign-in, or a
+  // signed-in user would see their account and sync silently vanish.
+  return { showAccount: visible || input.accountReadFailed === true, showSync: visible };
 };
 
 export interface AccountRowInput {
   account: { email?: string; needsReauth: boolean } | null;
   providerAvailable: boolean;
   linking: boolean;
+  accountReadFailed?: boolean;
 }
 
 export interface AccountRowModel {
   title: string;
   subtitle: string;
-  /** 'link' makes the row pressable. Null means information only: no chevron, no press. */
-  action: 'link' | null;
+  /** 'link' and 'retryRead' make the row pressable. Null means information only: no chevron, no press. */
+  action: 'link' | 'retryRead' | null;
 }
 
 /** Null means "show no row at all". */
-export const accountRowModel = ({ account, providerAvailable, linking }: AccountRowInput): AccountRowModel | null => {
+export const accountRowModel = ({ account, providerAvailable, linking, accountReadFailed }: AccountRowInput): AccountRowModel | null => {
+  if (accountReadFailed && !account) {
+    return {
+      title: "Couldn't load your account",
+      subtitle: "This phone couldn't read your sign-in, so sync is paused. Everything on this phone is safe. Tap to try again.",
+      action: 'retryRead',
+    };
+  }
   if (account?.needsReauth) {
     return providerAvailable
       ? {

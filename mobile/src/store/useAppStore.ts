@@ -739,7 +739,9 @@ export const useAppStore = create<AppState>()(
           updatedAt: createdAt,
           roadmap: input.roadmap ?? [],
         };
-        set((state) => ({ targets: [...state.targets, target], activeTargetId: id }));
+        // The onboarding draft is cleared in the same write: a kill between
+        // two writes must not leave a used draft to pre-fill the next flow.
+        set((state) => ({ targets: [...state.targets, target], activeTargetId: id, onboardingDraft: null }));
         return id;
       },
 
@@ -1157,9 +1159,29 @@ export const useAppStore = create<AppState>()(
       },
 
       updateCvEntry: (id, updates) =>
-        set((state) => ({
-          cvEntries: state.cvEntries.map((entry) => (entry.id === id ? { ...entry, ...updates } : entry)),
-        })),
+        set((state) => {
+          if (state.cvEntries.some((entry) => entry.id === id)) {
+            return {
+              cvEntries: state.cvEntries.map((entry) => (entry.id === id ? { ...entry, ...updates } : entry)),
+            };
+          }
+          // Deleted while its bullet was generating, but still undoable. The
+          // result is kept on the held copy, so an undo restores it finished
+          // instead of pending — and the queue does not pay for it twice.
+          const undo = state.pendingUndo;
+          if (undo?.kind === 'cvEntry' && undo.entry.id === id) {
+            return { pendingUndo: { ...undo, entry: { ...undo.entry, ...updates } } };
+          }
+          if (undo?.kind === 'task' && undo.cvEntries.some((entry) => entry.id === id)) {
+            return {
+              pendingUndo: {
+                ...undo,
+                cvEntries: undo.cvEntries.map((entry) => (entry.id === id ? { ...entry, ...updates } : entry)),
+              },
+            };
+          }
+          return {};
+        }),
 
       // A local wipe, as Settings describes it ("from this device"): no
       // tombstones, so the account's copy is untouched and a later sync

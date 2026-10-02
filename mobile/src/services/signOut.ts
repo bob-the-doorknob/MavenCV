@@ -25,8 +25,15 @@ export const signOutAndClear = async ({ force = false }: { force?: boolean } = {
 
   // The user is leaving: an undo still on offer would hold the push back.
   if (useAppStore.getState().pendingUndo) useAppStore.getState().clearPendingUndo();
-  if (useAppStore.getState().sync.dirty) await syncNow({ pull: false });
-  if (useAppStore.getState().sync.dirty && !force) return 'unsynced';
+  if (!force) {
+    // Waits for any sync already running and the push queued behind it, so
+    // the warning below only appears when changes really did not get through.
+    if (useAppStore.getState().sync.dirty) await syncNow({ pull: false });
+    if (useAppStore.getState().sync.dirty) return 'unsynced';
+  }
+  // Forced ("Sign out anyway"): the user accepted losing unsent changes, so
+  // nothing waits on the network. A response still in flight is discarded
+  // by the account epoch.
 
   // Unlinks in memory synchronously, before the wipe; the rest is awaited.
   const signedOut = signOutLinkedAccount();

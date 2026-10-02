@@ -22,7 +22,7 @@ import {
   resolveConflict,
   type DataCounts,
 } from '../../services/account';
-import { useAccountState } from '../../services/accountState';
+import { loadAccountState, useAccountState } from '../../services/accountState';
 import { getGoogleProvider } from '../../services/googleCredential';
 import { resetThisDevice } from '../../services/localData';
 import { signOutAndClear } from '../../services/signOut';
@@ -64,6 +64,7 @@ export function SettingsScreen() {
   // Read so the row re-renders when the dev switch flips.
   const simulateLinked = useSyncDevAccount((state) => state.simulateLinked);
   const account = useAccountState((state) => state.account);
+  const accountReadFailed = useAccountState((state) => state.readFailed);
   const [linking, setLinking] = useState(false);
   const googleAvailable = getGoogleProvider().isAvailable();
   const linked = isLinkedAccount();
@@ -237,13 +238,21 @@ export function SettingsScreen() {
     account,
     providerAvailable: googleAvailable,
     linking,
+    accountReadFailed,
   });
   const ui = accountUiVisibility({
     providerAvailable: googleAvailable,
     hasAccount: account !== null,
     linked,
     devSimulation: canSimulateLinkedAccount(),
+    accountReadFailed,
   });
+
+  const retryAccountRead = async (): Promise<void> => {
+    await loadAccountState();
+    // If the account is back, pick up where sync left off.
+    if (useAccountState.getState().account) onForeground();
+  };
 
   const signOut = async (force: boolean): Promise<void> => {
     const result = await signOutAndClear({ force });
@@ -350,7 +359,9 @@ export function SettingsScreen() {
                 title={accountRow.title}
                 {...(accountRow.action === 'link'
                   ? { onPress: () => void continueWithGoogle() }
-                  : {})}
+                  : accountRow.action === 'retryRead'
+                    ? { onPress: () => void retryAccountRead() }
+                    : {})}
               />
             </Card>
           </View>
