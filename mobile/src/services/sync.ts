@@ -2,6 +2,7 @@ import { create } from 'zustand';
 
 import { currentEpoch } from '../store/accountEpoch';
 import { emptySyncMeta, parseIncomingRecords, useAppStore, useStorageStatus } from '../store/useAppStore';
+import { liveCountsAtOrOverLimit } from '../utils/limits';
 import { SYNC_SCHEMA_VERSION, stripForPush, toRecords, type SyncRecords } from '../utils/syncMerge';
 import { ApiError, requestSync, type SyncHttpResult } from './api';
 import { isLinkedAccount } from './syncAccount';
@@ -25,10 +26,19 @@ import { isLinkedAccount } from './syncAccount';
 /**
  * - 'clock_skew': the server refused our timestamps — the device date is wrong.
  * - 'update_required': the account's data is from a newer app version. Permanent until the app is updated.
- * - 'too_large': the data is over the sync limits. Permanent until something is deleted.
+ * - 'too_large': the snapshot is over 900 KB. Permanent until something is deleted.
+ * - 'over_limit': more roadmaps, milestones or CV bullets than sync can hold. Permanent until something is deleted.
  * - 'error': anything else we cannot recover from by waiting.
  */
-export type SyncStatus = 'idle' | 'syncing' | 'offline' | 'error' | 'clock_skew' | 'update_required' | 'too_large';
+export type SyncStatus =
+  | 'idle'
+  | 'syncing'
+  | 'offline'
+  | 'error'
+  | 'clock_skew'
+  | 'update_required'
+  | 'too_large'
+  | 'over_limit';
 
 export const useSyncStatus = create<{ status: SyncStatus; lastSyncedAt: string | null }>(() => ({
   status: 'idle',
@@ -148,6 +158,16 @@ const scheduleRetry = (pull: boolean): void => {
   }, delay);
 };
 
+/** A bare INVALID_SYNC_INPUT is read as "too much" when our own live counts say it could be. */
+const localDataAtOrOverLimit = (): boolean => {
+  const { targets, cvEntries } = useAppStore.getState();
+  return liveCountsAtOrOverLimit({
+    targets: targets.length,
+    cvEntries: cvEntries.length,
+    largestRoadmap: targets.reduce((largest, target) => Math.max(largest, target.roadmap.length), 0),
+  });
+};
+
 const handleError = (error: unknown, pull: boolean): void => {
   if (error instanceof StopSync) {
     setStatus(error.status);
@@ -170,6 +190,10 @@ const handleError = (error: unknown, pull: boolean): void => {
   }
   if (error.code === 'SYNC_PAYLOAD_TOO_LARGE') {
     setStatus('too_large');
+    return;
+  }
+  if (error.code === 'SYNC_LIMIT_EXCEEDED' || (error.code === 'INVALID_SYNC_INPUT' && localDataAtOrOverLimit())) {
+    setStatus('over_limit');
     return;
   }
   if (error.code === 'SYNC_ACCOUNT_REQUIRED' || error.kind === 'invalid_response' || error.kind === 'consent_required') {

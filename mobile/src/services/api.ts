@@ -107,6 +107,7 @@ const ERROR_KINDS_BY_CODE: Readonly<Record<string, ApiErrorKind>> = {
   SYNC_CLOCK_SKEW: 'invalid_response',
   SYNC_SCHEMA_UNSUPPORTED: 'invalid_response',
   SYNC_PAYLOAD_TOO_LARGE: 'invalid_response',
+  SYNC_LIMIT_EXCEEDED: 'invalid_response',
 };
 
 const kindFromStatus = (status: number): ApiErrorKind => {

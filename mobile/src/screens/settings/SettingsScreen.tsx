@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Alert, Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
+import { Alert, DevSettings, Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -24,7 +24,7 @@ import {
 } from '../../services/account';
 import { loadAccountState, useAccountState } from '../../services/accountState';
 import { getGoogleProvider } from '../../services/googleCredential';
-import { resetThisDevice } from '../../services/localData';
+import { corruptSavedData, devCorruptionAvailable, resetThisDevice } from '../../services/localData';
 import { signOutAndClear } from '../../services/signOut';
 import { onAccountLinked, onForeground, useSyncStatus } from '../../services/sync';
 import {
@@ -254,8 +254,17 @@ export function SettingsScreen() {
     if (useAccountState.getState().account) onForeground();
   };
 
+  const [signingOut, setSigningOut] = useState(false);
+
   const signOut = async (force: boolean): Promise<void> => {
-    const result = await signOutAndClear({ force });
+    if (signingOut) return;
+    setSigningOut(true);
+    let result: Awaited<ReturnType<typeof signOutAndClear>>;
+    try {
+      result = await signOutAndClear({ force });
+    } finally {
+      setSigningOut(false);
+    }
     if (result === 'unsynced') {
       Alert.alert(
         "Some changes haven't reached your account",
@@ -289,6 +298,36 @@ export function SettingsScreen() {
       ],
     );
   };
+
+  // Development builds only: breaks the saved data on purpose to try the recovery screen.
+  const confirmCorrupt = (): void => {
+    Alert.alert(
+      'Corrupt saved data?',
+      "Development only. This writes invalid data over this phone's saved data, then reloads the app so you land on the recovery screen. The data is gone unless you have an export or a saved copy.",
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Corrupt and reload',
+          style: 'destructive',
+          onPress: () => {
+            corruptSavedData()
+              .then(() => DevSettings.reload())
+              .catch(() => Alert.alert('Not corrupted', 'The saved data could not be overwritten.'));
+          },
+        },
+      ],
+    );
+  };
+
+  // While signing out the row is disabled — no press, no chevron — and says so.
+  const signOutRow = signingOut
+    ? { title: 'Signing out…', subtitle: 'Clearing this phone. This can take a moment.' }
+    : {
+        isDanger: true,
+        onPress: confirmSignOut,
+        subtitle: 'Removes your data from this phone. Your account keeps its copy.',
+        title: 'Sign out and clear this device',
+      };
 
   return (
     <View style={styles.screen}>
@@ -406,13 +445,7 @@ export function SettingsScreen() {
             />
             {account ? (
               <>
-                <SettingsRow
-                  isDanger
-                  isFirst={false}
-                  onPress={confirmSignOut}
-                  subtitle="Removes your data from this phone. Your account keeps its copy."
-                  title="Sign out and clear this device"
-                />
+                <SettingsRow isFirst={false} {...signOutRow} />
                 <SettingsRow
                   isDanger
                   isFirst={false}
@@ -422,13 +455,7 @@ export function SettingsScreen() {
                 />
               </>
             ) : linked ? (
-              <SettingsRow
-                isDanger
-                isFirst={false}
-                onPress={confirmSignOut}
-                subtitle="Removes your data from this phone. Your account keeps its copy."
-                title="Sign out and clear this device"
-              />
+              <SettingsRow isFirst={false} {...signOutRow} />
             ) : (
               <SettingsRow
                 isDanger
@@ -438,6 +465,15 @@ export function SettingsScreen() {
                 title="Reset all data"
               />
             )}
+            {devCorruptionAvailable() ? (
+              <SettingsRow
+                isDanger
+                isFirst={false}
+                onPress={confirmCorrupt}
+                subtitle="Development builds only. Overwrites the saved data with invalid data, then reloads."
+                title="Corrupt saved data (dev)"
+              />
+            ) : null}
           </Card>
         </View>
 

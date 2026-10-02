@@ -152,3 +152,39 @@ describe('signOutAndClear', () => {
     expect(useAppStore.getState().targets).toEqual([]);
   });
 });
+
+describe('signing out twice at once', () => {
+  it('runs once: a second tap joins the first instead of starting another', async () => {
+    addTarget();
+    const first = signOutAndClear();
+    const second = signOutAndClear();
+
+    expect(second).toBe(first);
+    await expect(Promise.all([first, second])).resolves.toEqual(['cleared', 'cleared']);
+    // One push of the pending change, not two.
+    expect(calls.filter((call) => call === 'PUT')).toHaveLength(1);
+  });
+
+  it('does the same for "Sign out anyway"', async () => {
+    addTarget();
+    const first = signOutAndClear({ force: true });
+    const second = signOutAndClear({ force: true });
+
+    expect(second).toBe(first);
+    await expect(Promise.all([first, second])).resolves.toEqual(['cleared', 'cleared']);
+    expect(calls).toEqual([]);
+  });
+
+  it('starts a fresh run once the first has finished', async () => {
+    addTarget();
+    const first = signOutAndClear({ force: true });
+    await first;
+    setSimulateLinkedAccount(true);
+    addTarget();
+
+    const next = signOutAndClear({ force: true });
+
+    expect(next).not.toBe(first);
+    await expect(next).resolves.toBe('cleared');
+  });
+});

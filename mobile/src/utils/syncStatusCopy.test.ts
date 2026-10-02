@@ -41,4 +41,16 @@ describe('syncStatusCopy', () => {
     expect(copy.title).toBe('Too much data to sync');
     expect(copy.subtitle).toContain('Delete');
   });
+
+  it('over the count limits: says what to delete and that the phone is safe, word for word', () => {
+    const copy = syncStatusCopy('over_limit', true, null, NOW);
+    expect(copy.title).toBe('Too much to sync');
+    expect(copy.subtitle).toBe(
+      'Delete roadmaps or CV bullets you no longer need, then tap to retry. Everything on this phone is safe.',
+    );
+  });
+
+  it('keeps the over-limit and too-large copy distinct', () => {
+    expect(syncStatusCopy('over_limit', true, null, NOW)).not.toEqual(syncStatusCopy('too_large', true, null, NOW));
+  });
 });

@@ -50,9 +50,12 @@ export const utf8Length = (text: string): number => {
   return bytes;
 };
 
-type Check = { ok: true } | { ok: false; code: 'INVALID_SYNC_INPUT' | 'SYNC_CLOCK_SKEW'; message: string };
+type Check =
+  | { ok: true }
+  | { ok: false; code: 'INVALID_SYNC_INPUT' | 'SYNC_CLOCK_SKEW' | 'SYNC_LIMIT_EXCEEDED'; message: string };
 
 const invalid = (message: string): Check => ({ ok: false, code: 'INVALID_SYNC_INPUT', message });
+const overLimit = (message: string): Check => ({ ok: false, code: 'SYNC_LIMIT_EXCEEDED', message });
 
 const checkTimestamp = (value: unknown, field: string, now: number): Check => {
   if (typeof value !== 'string' || !ISO_UTC.test(value) || Number.isNaN(Date.parse(value))) {
@@ -91,7 +94,7 @@ const checkRecords = (
       }
       if (record.level !== 'internship' && record.level !== 'entry-level') return invalid('invalid level');
       if (!Array.isArray(record.roadmap)) return invalid('live target lacks a roadmap');
-      if (record.roadmap.length > MAX_TASKS_PER_TARGET) return invalid('too many milestones');
+      if (record.roadmap.length > MAX_TASKS_PER_TARGET) return overLimit('too many milestones');
       const badTask = record.roadmap.some(
         (task) =>
           !isRecord(task) ||
@@ -147,12 +150,16 @@ export class MockSyncServer {
     if (!(baseServerUpdatedAt === null || typeof baseServerUpdatedAt === 'string')) {
       return { status: 400, body: errorBody('INVALID_SYNC_INPUT', 'baseServerUpdatedAt must be a string or null') };
     }
-    if (targets.length > MAX_TARGETS || cvEntries.length > MAX_CV_ENTRIES) {
-      return { status: 400, body: errorBody('INVALID_SYNC_INPUT', 'Too many records') };
-    }
     const now = this.now();
+    // Structure first: an over-limit answer should mean the data was otherwise fine.
     for (const check of [checkRecords(targets, 'target', now), checkRecords(cvEntries, 'cvEntry', now)]) {
       if (!check.ok) return { status: 400, body: errorBody(check.code, check.message) };
+    }
+    // Live records only: tombstones never count, so deleting always makes room.
+    const live = (records: unknown[]): number =>
+      records.filter((record) => isRecord(record) && typeof record.deletedAt !== 'string').length;
+    if (live(targets) > MAX_TARGETS || live(cvEntries) > MAX_CV_ENTRIES) {
+      return { status: 400, body: errorBody('SYNC_LIMIT_EXCEEDED', 'Too many live records') };
     }
 
     // Compare-and-set: the whole point of baseServerUpdatedAt.

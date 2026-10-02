@@ -18,6 +18,18 @@ const LIMITS: Readonly<Record<LimitKind, number>> = {
 /** True when one more would go over the limit. */
 export const atLimit = (kind: LimitKind, currentCount: number): boolean => currentCount >= LIMITS[kind];
 
+/**
+ * True when live records are at or over any sync count limit. Used to read a
+ * bare INVALID_SYNC_INPUT as "too much to sync" when the data is that big.
+ * Live only: tombstones do not count (docs/sync-contract.md, size and count limits).
+ */
+export const liveCountsAtOrOverLimit = (counts: {
+  targets: number;
+  cvEntries: number;
+  largestRoadmap: number;
+}): boolean =>
+  atLimit('targets', counts.targets) || atLimit('cvEntries', counts.cvEntries) || atLimit('milestones', counts.largestRoadmap);
+
 export const limitMessage = (kind: LimitKind): string => {
   switch (kind) {
     case 'milestones':

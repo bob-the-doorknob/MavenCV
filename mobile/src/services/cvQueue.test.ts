@@ -185,7 +185,9 @@ describe('processPendingCvEntries', () => {
     await processPendingCvEntries();
 
     expect(useAppStore.getState().cvEntries[0]?.status).toBe('failed');
-    expect(useCvQueueStatus.getState().message).toContain('edit its notes');
+    expect(useCvQueueStatus.getState().message).toBe(
+      'Open the milestone, tap ⋯ › Edit, change its completion evidence, then retry the bullet.',
+    );
   });
 
   it('processes entries one at a time, in order', async () => {

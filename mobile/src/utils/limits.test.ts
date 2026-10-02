@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { MAX_CV_ENTRIES, MAX_MILESTONES_PER_TARGET, MAX_TARGETS, atLimit, limitMessage } from './limits';
+import { MAX_CV_ENTRIES, MAX_MILESTONES_PER_TARGET, MAX_TARGETS, atLimit, limitMessage, liveCountsAtOrOverLimit } from './limits';
 
 describe('limits', () => {
   it('match the sync contract', () => {
@@ -23,3 +23,24 @@ describe('limits', () => {
     for (const kind of ['milestones', 'targets', 'cvEntries'] as const) expect(limitMessage(kind)).toMatch(/Delete/);
   });
 });
+
+describe('liveCountsAtOrOverLimit', () => {
+  const under = { targets: 3, cvEntries: 40, largestRoadmap: 9 };
+
+  it('is false well under every limit', () => {
+    expect(liveCountsAtOrOverLimit(under)).toBe(false);
+  });
+
+  it.each([
+    ['targets', { ...under, targets: 50 }],
+    ['CV entries', { ...under, cvEntries: 2_000 }],
+    ['milestones in one roadmap', { ...under, largestRoadmap: 200 }],
+  ])('is true at the %s limit', (_label, counts) => {
+    expect(liveCountsAtOrOverLimit(counts)).toBe(true);
+  });
+
+  it('is false one under each limit', () => {
+    expect(liveCountsAtOrOverLimit({ targets: 49, cvEntries: 1_999, largestRoadmap: 199 })).toBe(false);
+  });
+});
+

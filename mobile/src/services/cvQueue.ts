@@ -81,7 +81,7 @@ export const processPendingCvEntries = async (): Promise<void> => {
         if (task && error instanceof ApiError && error.kind === 'invalid_input') {
           // Retrying the same text fails the same way; the milestone's notes need editing.
           useCvQueueStatus.setState({
-            message: "Some text in a finished milestone couldn't be sent. Open it, edit its notes, then retry.",
+            message: 'Open the milestone, tap ⋯ › Edit, change its completion evidence, then retry the bullet.',
           });
         }
         useAppStore.getState().updateCvEntry(entry.id, { status: 'failed' });

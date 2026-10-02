@@ -16,7 +16,23 @@ export type SignOutResult = 'cleared' | 'unsynced';
  * sent (offline, say) it clears nothing and reports 'unsynced', unless the
  * user has chosen to sign out anyway (`force`).
  */
-export const signOutAndClear = async ({ force = false }: { force?: boolean } = {}): Promise<SignOutResult> => {
+let inFlight: Promise<SignOutResult> | null = null;
+
+/**
+ * One run at a time: a second call while one is running (a double tap) joins
+ * it instead of starting another, so the wipe, the sign-out and the push
+ * each happen once.
+ */
+export const signOutAndClear = (options: { force?: boolean } = {}): Promise<SignOutResult> => {
+  if (inFlight) return inFlight;
+  const run = runSignOut(options).finally(() => {
+    if (inFlight === run) inFlight = null;
+  });
+  inFlight = run;
+  return run;
+};
+
+const runSignOut = async ({ force = false }: { force?: boolean } = {}): Promise<SignOutResult> => {
   if (!isLinkedAccount()) {
     // Nothing to sign out of; the caller should have offered the plain reset.
     await resetThisDevice();

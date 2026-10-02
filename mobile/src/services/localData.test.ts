@@ -25,7 +25,7 @@ import {
   useStorageStatus,
   writeState,
 } from '../store/useAppStore';
-import { deleteLocalCopies, localCopyKeys, resetThisDevice, startFresh } from './localData';
+import { corruptSavedData, deleteLocalCopies, devCorruptionAvailable, localCopyKeys, resetThisDevice, startFresh } from './localData';
 import { stripForPush, toRecords } from '../utils/syncMerge';
 
 const addTarget = () =>
@@ -151,5 +151,58 @@ describe('local copies', () => {
     await resetThisDevice();
     expect(useAppStore.getState().targets).toEqual([]);
     for (const key of [RECOVERY_KEY, LEGACY_BACKUP_KEY, `${PRE_MIGRATION_KEY_PREFIX}0`]) expect(disk.map.has(key)).toBe(false);
+  });
+});
+
+describe('the dev "Corrupt saved data" tool', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('is hidden when __DEV__ is false, so a release build never shows the row', () => {
+    vi.stubGlobal('__DEV__', false);
+    expect(devCorruptionAvailable()).toBe(false);
+  });
+
+  it('is hidden when __DEV__ does not exist at all', () => {
+    vi.stubGlobal('__DEV__', undefined);
+    expect(devCorruptionAvailable()).toBe(false);
+  });
+
+  it('is shown in a development build', () => {
+    vi.stubGlobal('__DEV__', true);
+    expect(devCorruptionAvailable()).toBe(true);
+  });
+
+  it('refuses to run, and writes nothing, when __DEV__ is false', async () => {
+    vi.stubGlobal('__DEV__', false);
+    disk.map.set(STORAGE_KEY, '{"state":{},"version":2}');
+    await expect(corruptSavedData()).rejects.toThrow(/development builds/);
+    expect(disk.map.get(STORAGE_KEY)).toBe('{"state":{},"version":2}');
+  });
+
+  it('writes invalid JSON to the store key and leaves every other copy exactly as it was', async () => {
+    vi.stubGlobal('__DEV__', true);
+    disk.map.set(STORAGE_KEY, '{"state":{},"version":2}');
+    disk.map.set(RECOVERY_KEY, 'recovery bytes');
+    disk.map.set(`${PRE_MIGRATION_KEY_PREFIX}1`, 'v1 bytes');
+
+    await corruptSavedData();
+
+    expect(() => JSON.parse(disk.map.get(STORAGE_KEY) as string)).toThrow();
+    expect(disk.map.get(RECOVERY_KEY)).toBe('recovery bytes');
+    expect(disk.map.get(`${PRE_MIGRATION_KEY_PREFIX}1`)).toBe('v1 bytes');
+  });
+
+  it('leads to the could-not-load state on the next launch, with no pre-migration copy made', async () => {
+    vi.stubGlobal('__DEV__', true);
+    await corruptSavedData();
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    await useAppStore.persist.rehydrate();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(useStorageStatus.getState().error).toContain('could not be loaded');
+    expect([...disk.map.keys()].some((key) => key.startsWith(PRE_MIGRATION_KEY_PREFIX))).toBe(false);
   });
 });

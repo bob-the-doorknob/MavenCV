@@ -109,4 +109,38 @@ describe('MockSyncServer', () => {
     expect(response.status).toBe(200);
     expect((server.get().body as { targets: Array<Record<string, unknown>> }).targets[1]?.futureField).toBe(42);
   });
+
+  describe('count limits', () => {
+    const tomb = (id: string) => ({ id, updatedAt: iso(NOW), deletedAt: iso(NOW) });
+    const targets = (count: number) => Array.from({ length: count }, (_, index) => liveTarget({ id: `t${index}` }));
+
+    it('accept exactly the limit of live records', () => {
+      expect(put(new MockSyncServer(() => NOW), { targets: targets(50) }).status).toBe(200);
+    });
+
+    it('refuse one more live target with SYNC_LIMIT_EXCEEDED, not INVALID_SYNC_INPUT', () => {
+      const response = put(new MockSyncServer(() => NOW), { targets: targets(51) });
+      expect(response.status).toBe(400);
+      expect(code(response)).toBe('SYNC_LIMIT_EXCEEDED');
+    });
+
+    it('do not count tombstones: deleting always makes room', () => {
+      const withTombstones = [...targets(50), ...Array.from({ length: 30 }, (_, index) => tomb(`gone${index}`))];
+      expect(put(new MockSyncServer(() => NOW), { targets: withTombstones }).status).toBe(200);
+    });
+
+    it('apply to CV entries and to milestones per target', () => {
+      const entry = (id: string) => ({ id, targetId: 't', taskId: 'k', status: 'ready', text: 'x', createdAt: iso(NOW), updatedAt: iso(NOW) });
+      expect(code(put(new MockSyncServer(() => NOW), { cvEntries: Array.from({ length: 2_001 }, (_, i) => entry(`e${i}`)) }))).toBe('SYNC_LIMIT_EXCEEDED');
+      expect(put(new MockSyncServer(() => NOW), { cvEntries: [...Array.from({ length: 2_000 }, (_, i) => entry(`e${i}`)), tomb('old')] }).status).toBe(200);
+      const roadmap = (count: number) => Array.from({ length: count }, (_, i) => ({ id: `k${i}`, status: 'not_started' }));
+      expect(code(put(new MockSyncServer(() => NOW), { targets: [liveTarget({ roadmap: roadmap(201) })] }))).toBe('SYNC_LIMIT_EXCEEDED');
+      expect(put(new MockSyncServer(() => NOW), { targets: [liveTarget({ roadmap: roadmap(200) })] }).status).toBe(200);
+    });
+
+    it('still reject malformed data as INVALID_SYNC_INPUT, even when over a limit', () => {
+      const response = put(new MockSyncServer(() => NOW), { targets: [...targets(51), liveTarget({ id: 't0' })] });
+      expect(code(response)).toBe('INVALID_SYNC_INPUT');
+    });
+  });
 });

@@ -45,6 +45,12 @@ export const syncStatusCopy = (
         subtitle:
           "Your account's data was saved by a newer version of Maven. Update the app, then it will sync again. Everything on this phone is safe.",
       };
+    case 'over_limit':
+      return {
+        title: 'Too much to sync',
+        subtitle:
+          'Delete roadmaps or CV bullets you no longer need, then tap to retry. Everything on this phone is safe.',
+      };
     case 'too_large':
       return {
         title: 'Too much data to sync',

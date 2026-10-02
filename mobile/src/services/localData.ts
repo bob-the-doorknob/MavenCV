@@ -59,6 +59,21 @@ export const startFresh = async (): Promise<void> => {
   await useAppStore.persist.rehydrate();
 };
 
+/** Development builds only. Release builds never show the corruption row and never run it. */
+export const devCorruptionAvailable = (): boolean => typeof __DEV__ !== 'undefined' && __DEV__;
+
+/**
+ * Dev tool: overwrites the saved data with invalid JSON, to reach the
+ * "could not be loaded" screen on demand. Touches only the main store key —
+ * the recovery and pre-migration copies are left exactly as they are, so the
+ * recovery paths can be tried against a real failure. The caller reloads the
+ * app afterwards. Refuses to run outside a development build.
+ */
+export const corruptSavedData = async (): Promise<void> => {
+  if (!devCorruptionAvailable()) throw new Error('Corrupting saved data is only available in development builds.');
+  await AsyncStorage.setItem(STORAGE_KEY, '{"state": corrupted on purpose by the dev tool');
+};
+
 /** What "Export" shares when a save failed: the in-memory data that did not reach storage. */
 export const currentDataAsText = (): string => {
   const { targets, activeTargetId, cvEntries, onboardingDraft, tombstones, sync } = useAppStore.getState();

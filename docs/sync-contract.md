@@ -277,9 +277,15 @@ whose target is simply absent is kept and is harmless.
 | Limit | Value | Response |
 | --- | --- | --- |
 | Request body | **900 KB** (921,600 bytes, UTF-8) | `413 SYNC_PAYLOAD_TOO_LARGE` |
-| Targets (live + tombstones) | 50 | `400 INVALID_SYNC_INPUT` |
-| Milestones per target | 200 | `400 INVALID_SYNC_INPUT` |
-| CV entries (live + tombstones) | 2,000 | `400 INVALID_SYNC_INPUT` |
+| Targets (**live only**) | 50 | `400 SYNC_LIMIT_EXCEEDED` |
+| Milestones per target | 200 | `400 SYNC_LIMIT_EXCEEDED` |
+| CV entries (**live only**) | 2,000 | `400 SYNC_LIMIT_EXCEEDED` |
+
+The three count limits count **live records only** — records without
+`deletedAt`. Tombstones do not count toward them, so deleting something always
+makes room. A `PUT` is refused with `SYNC_LIMIT_EXCEEDED` only when it holds
+**more than** the limit of live records. The **900 KB body limit still applies
+to everything**, tombstones included.
 
 900 KB leaves headroom under Firestore's 1 MiB document limit if the snapshot is
 stored as one document (`sync/{uid}`). The body-size limit must be enforced
@@ -301,7 +307,8 @@ Messages are for logs; the app shows its own copy.
 
 | HTTP | `code` | Client `ApiErrorKind` | Client behaviour |
 | --- | --- | --- | --- |
-| 400 | `INVALID_SYNC_INPUT` | `invalid_response` | Stop retrying; status `error`. |
+| 400 | `INVALID_SYNC_INPUT` | `invalid_response` | Stop retrying; status `error` — or `over_limit` when the client's own live counts are at or over a count limit (§5). |
+| 400 | `SYNC_LIMIT_EXCEEDED` | `invalid_response` | Stop retrying; status `over_limit`. Local data untouched. |
 | 400 | `SYNC_SCHEMA_UNSUPPORTED` | `invalid_response` | Stop retrying; status `error`. |
 | 400 | `SYNC_CLOCK_SKEW` | `invalid_response` | Stop retrying; status `clock_skew` until the app returns to the foreground. |
 | 401 | `AUTHENTICATION_REQUIRED` | `auth` | Retry with backoff after a token refresh. |

@@ -563,3 +563,69 @@ describe('permanent sync errors say what would fix them', () => {
     expect(useAppStore.getState().targets).toHaveLength(1);
   });
 });
+
+describe('over the sync count limits', () => {
+  const failWith = (code: string, calls: string[]) =>
+    configureSync({
+      isLinked: () => true,
+      request: async (method) => {
+        calls.push(method);
+        throw new ApiError('invalid_response', 'refused', code);
+      },
+    });
+
+  it('SYNC_LIMIT_EXCEEDED becomes over_limit and is not retried', async () => {
+    const calls: string[] = [];
+    failWith('SYNC_LIMIT_EXCEEDED', calls);
+    addTarget();
+
+    await syncNow({ pull: false });
+    await flush(BACKOFF_MS[4] * 2);
+
+    expect(useSyncStatus.getState().status).toBe('over_limit');
+    expect(calls).toHaveLength(1);
+    expect(useAppStore.getState().targets).toHaveLength(1);
+  });
+
+  it('INVALID_SYNC_INPUT becomes over_limit when the live counts are at a limit', async () => {
+    const calls: string[] = [];
+    failWith('INVALID_SYNC_INPUT', calls);
+    addTarget({
+      roadmap: Array.from({ length: 200 }, (_, index) => ({
+        id: `m${index}`, title: `Build ${index} thing`, doneWhen: 'Done', steps: [], estimatedWeeks: 2, priority: 2 as const, status: 'not_started' as const,
+      })),
+    });
+
+    await syncNow({ pull: false });
+    await flush(BACKOFF_MS[4] * 2);
+
+    expect(useSyncStatus.getState().status).toBe('over_limit');
+    expect(calls).toHaveLength(1);
+  });
+
+  it('INVALID_SYNC_INPUT stays a plain error when the counts are well under every limit', async () => {
+    const calls: string[] = [];
+    failWith('INVALID_SYNC_INPUT', calls);
+    addTarget();
+
+    await syncNow({ pull: false });
+
+    expect(useSyncStatus.getState().status).toBe('error');
+  });
+
+  it('counts only live records: a pile of deleted targets does not make INVALID_SYNC_INPUT an over-limit', async () => {
+    const calls: string[] = [];
+    failWith('INVALID_SYNC_INPUT', calls);
+    for (let index = 0; index < 55; index += 1) {
+      const id = addTarget();
+      useAppStore.getState().removeTarget(id);
+    }
+    addTarget();
+    useAppStore.getState().clearPendingUndo();
+
+    await syncNow({ pull: false });
+
+    expect(useAppStore.getState().tombstones.targets.length).toBeGreaterThanOrEqual(55);
+    expect(useSyncStatus.getState().status).toBe('error');
+  });
+});
