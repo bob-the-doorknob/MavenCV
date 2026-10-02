@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 
+import { bumpEpoch } from '../store/accountEpoch';
 import { useAppStore } from '../store/useAppStore';
 import { getLinkedAccount } from './accountState';
 
@@ -26,6 +27,7 @@ export const useSyncDevAccount = create<{ simulateLinked: boolean }>(() => ({ si
 
 export const setSimulateLinkedAccount = (on: boolean): void => {
   if (!canSimulateLinkedAccount()) return;
+  bumpEpoch();
   useSyncDevAccount.setState({ simulateLinked: on });
 };
 

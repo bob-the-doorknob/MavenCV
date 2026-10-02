@@ -1,6 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
 
+import { bumpEpoch, currentEpoch } from '../store/accountEpoch';
 import { getLinkedAccount, markNeedsReauth } from './accountState';
 
 const STORAGE_KEY = 'trajectory-firebase-anonymous-auth-v1';
@@ -16,6 +17,8 @@ interface AuthSession {
 let pending: Promise<string> | undefined;
 let cached: AuthSession | undefined;
 class InvalidRefreshToken extends Error {}
+/** The session was replaced or cleared while this request was out; its result must not be saved. */
+class StaleSession extends Error {}
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -41,7 +44,13 @@ const readSession = async (): Promise<AuthSession | undefined> => {
   return cached;
 };
 
-const requestSession = async (url: string, body: string, contentType: string, refresh: boolean): Promise<AuthSession> => {
+const requestSession = async (
+  url: string,
+  body: string,
+  contentType: string,
+  refresh: boolean,
+  epoch: number,
+): Promise<AuthSession> => {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 15_000);
   let value: unknown;
@@ -62,32 +71,51 @@ const requestSession = async (url: string, body: string, contentType: string, re
     throw new Error('Firebase authentication failed');
   }
   const session = { idToken, refreshToken, expiresAt: Date.now() + expiresIn * 1000 };
+  // replaceSession or clearSession ran while this was out (a link, sign-out
+  // or deletion). Saving now would bring the old session back.
+  if (currentEpoch() !== epoch) throw new StaleSession();
   await SecureStore.setItemAsync(STORAGE_KEY, refreshToken);
   if (await SecureStore.getItemAsync(STORAGE_KEY) !== refreshToken) throw new Error('Could not securely save session');
   if (await AsyncStorage.getItem(STORAGE_KEY) !== null) await AsyncStorage.removeItem(STORAGE_KEY);
+  if (currentEpoch() !== epoch) throw new StaleSession();
   cached = session;
   return session;
 };
 
-const acquireIdToken = async (): Promise<string> => {
+const acquireOnce = async (): Promise<string> => {
   const apiKey = process.env.EXPO_PUBLIC_FIREBASE_API_KEY;
   if (!apiKey) throw new Error('EXPO_PUBLIC_FIREBASE_API_KEY is required');
+  let epoch = currentEpoch();
   const session = await readSession();
   if (session && session.expiresAt > Date.now() + 60_000) return session.idToken;
   if (session) {
     const body = `grant_type=refresh_token&refresh_token=${encodeURIComponent(session.refreshToken)}`;
     try {
-      return (await requestSession(`${FIREBASE_REFRESH_URL}?key=${encodeURIComponent(apiKey)}`, body, 'application/x-www-form-urlencoded', true)).idToken;
+      return (await requestSession(`${FIREBASE_REFRESH_URL}?key=${encodeURIComponent(apiKey)}`, body, 'application/x-www-form-urlencoded', true, epoch)).idToken;
     } catch (error) {
       if (!(error instanceof InvalidRefreshToken)) throw error;
       // A linked session that can no longer refresh: remember it so sync
       // pauses and Settings asks the user to sign in again. The device still
       // gets a fresh anonymous session below, so AI features keep working;
       // signing in again re-attaches the account without touching local data.
-      if (getLinkedAccount()) await markNeedsReauth();
+      if (getLinkedAccount()) {
+        await markNeedsReauth();
+        // That bump was ours; the sign-up below belongs to the new state.
+        epoch = currentEpoch();
+      }
     }
   }
-  return (await requestSession(`${FIREBASE_AUTH_URL}?key=${encodeURIComponent(apiKey)}`, JSON.stringify({ returnSecureToken: true }), 'application/json', false)).idToken;
+  return (await requestSession(`${FIREBASE_AUTH_URL}?key=${encodeURIComponent(apiKey)}`, JSON.stringify({ returnSecureToken: true }), 'application/json', false, epoch)).idToken;
+};
+
+/** A request overtaken by a session change starts over against the new state, once. */
+const acquireIdToken = async (): Promise<string> => {
+  try {
+    return await acquireOnce();
+  } catch (error) {
+    if (!(error instanceof StaleSession)) throw error;
+    return acquireOnce();
+  }
 };
 
 export interface SessionTokens {
@@ -98,6 +126,7 @@ export interface SessionTokens {
 
 /** Makes `session` this device's Firebase session (after a Google sign-in or link). */
 export const replaceSession = async (session: SessionTokens): Promise<void> => {
+  bumpEpoch();
   pending = undefined;
   await SecureStore.setItemAsync(STORAGE_KEY, session.refreshToken);
   if (await SecureStore.getItemAsync(STORAGE_KEY) !== session.refreshToken) throw new Error('Could not securely save session');
@@ -109,6 +138,7 @@ export const replaceSession = async (session: SessionTokens): Promise<void> => {
  * anonymously from scratch. Used by sign-out and account deletion.
  */
 export const clearSession = async (): Promise<void> => {
+  bumpEpoch();
   pending = undefined;
   cached = undefined;
   await SecureStore.deleteItemAsync(STORAGE_KEY);
@@ -116,6 +146,13 @@ export const clearSession = async (): Promise<void> => {
 };
 
 export const getAnonymousIdToken = (): Promise<string> => {
-  pending ??= acquireIdToken().finally(() => { pending = undefined; });
+  if (!pending) {
+    // Clears only itself: a newer request started after a session change
+    // must not lose its slot when this older one settles.
+    const request: Promise<string> = acquireIdToken().finally(() => {
+      if (pending === request) pending = undefined;
+    });
+    pending = request;
+  }
   return pending;
 };

@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 
+import { currentEpoch } from '../store/accountEpoch';
 import { emptySyncMeta, parseIncomingRecords, useAppStore, useStorageStatus } from '../store/useAppStore';
 import { SYNC_SCHEMA_VERSION, stripForPush, toRecords, type SyncRecords } from '../utils/syncMerge';
 import { ApiError, requestSync, type SyncHttpResult } from './api';
@@ -165,8 +166,19 @@ const handleError = (error: unknown, pull: boolean): void => {
   scheduleRetry(pull);
 };
 
+/**
+ * Thrown when the device's account state changed while a request was out
+ * (sign-out, deletion, a wipe, a new link). The response belongs to data that
+ * is gone; writing it would refill a device the user just cleared.
+ */
+class StaleResponse extends Error {}
+
+const assertCurrent = (epoch: number): void => {
+  if (currentEpoch() !== epoch) throw new StaleResponse();
+};
+
 /** PUT, and on 409 merge the server's snapshot and try once more. */
-const push = async (): Promise<void> => {
+const push = async (epoch: number): Promise<void> => {
   for (let attempt = 0; attempt < 2; attempt += 1) {
     if (undoOnOffer()) return;
     // Bring stamps written by a wrong clock back into range first.
@@ -179,6 +191,7 @@ const push = async (): Promise<void> => {
       baseServerUpdatedAt: state.sync.baseServerUpdatedAt,
     });
 
+    assertCurrent(epoch);
     if (result.kind === 'ok') {
       const stored = parseSnapshot(result.body);
       // Anything changed while the request was out still needs pushing.
@@ -199,6 +212,8 @@ const push = async (): Promise<void> => {
 };
 
 const run = async (pull: boolean): Promise<void> => {
+  // Captured before any request; checked before every write that follows one.
+  const epoch = currentEpoch();
   if (!deps.isLinked()) {
     setStatus('idle');
     return;
@@ -212,6 +227,7 @@ const run = async (pull: boolean): Promise<void> => {
   try {
     if (pull) {
       const result = await deps.request('GET');
+      assertCurrent(epoch);
       const remote = parseSnapshot(result.body);
       // An undo may have been offered while the request was out.
       if (undoOnOffer()) {
@@ -219,16 +235,22 @@ const run = async (pull: boolean): Promise<void> => {
         return;
       }
       const needsPush = useAppStore.getState().mergeRemote(remote.records, remote.serverUpdatedAt);
-      if (needsPush) await push();
+      if (needsPush) await push(epoch);
     } else {
-      await push();
+      await push(epoch);
     }
+    assertCurrent(epoch);
     if (useAppStore.getState().pendingUndo) {
       setStatus('idle');
       return;
     }
     markSynced();
   } catch (error) {
+    if (error instanceof StaleResponse) {
+      // Nothing to report or retry: whatever comes next starts from the new state.
+      setStatus('idle');
+      return;
+    }
     handleError(error, pull);
   }
 };

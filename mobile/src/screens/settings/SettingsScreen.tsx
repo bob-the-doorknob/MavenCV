@@ -24,6 +24,7 @@ import {
 } from '../../services/account';
 import { useAccountState } from '../../services/accountState';
 import { getGoogleProvider } from '../../services/googleCredential';
+import { resetThisDevice } from '../../services/localData';
 import { signOutAndClear } from '../../services/signOut';
 import { onAccountLinked, onForeground, useSyncStatus } from '../../services/sync';
 import {
@@ -168,7 +169,7 @@ export function SettingsScreen() {
         {
           text: 'Reset',
           style: 'destructive',
-          onPress: () => useAppStore.getState().resetAll(),
+          onPress: () => void resetThisDevice(),
         },
       ],
     );

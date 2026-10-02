@@ -24,7 +24,7 @@ vi.mock('@react-native-async-storage/async-storage', () => ({
 
 import { useAppStore } from '../store/useAppStore';
 import { getLinkedAccount, getSignedInUid, setLinkedAccount } from './accountState';
-import { getAnonymousIdToken } from './anonymousAuth';
+import { clearSession, getAnonymousIdToken, replaceSession } from './anonymousAuth';
 import { isLinkedAccount } from './syncAccount';
 
 const SESSION_KEY = 'secure:trajectory-firebase-anonymous-auth-v1';
@@ -75,5 +75,53 @@ describe('refreshing a linked session', () => {
 
     expect(getLinkedAccount()).toMatchObject({ needsReauth: false });
     expect(isLinkedAccount()).toBe(true);
+  });
+});
+
+describe('a refresh in flight when the session changes', () => {
+  const deferredFetch = () => {
+    let resolve: (value: unknown) => void = () => {};
+    const response = new Promise((r) => {
+      resolve = r;
+    });
+    return { response, resolve };
+  };
+
+  it('cannot overwrite a session adopted by linking', async () => {
+    await setLinkedAccount(null);
+    storage.set(SESSION_KEY, 'old-refresh');
+    const slow = deferredFetch();
+    vi.stubGlobal('fetch', vi.fn().mockReturnValueOnce(slow.response));
+
+    const inFlight = getAnonymousIdToken();
+    await Promise.resolve();
+    await replaceSession({ idToken: 'linked-id', refreshToken: 'linked-refresh', expiresAt: Date.now() + 3_600_000 });
+    slow.resolve({ ok: true, json: async () => ({ id_token: 'old-id-2', refresh_token: 'old-refresh-2', expires_in: '3600' }) });
+
+    await expect(inFlight).resolves.toBe('linked-id');
+    expect(storage.get(SESSION_KEY)).toBe('linked-refresh');
+    await expect(getAnonymousIdToken()).resolves.toBe('linked-id');
+  });
+
+  it('cannot bring back a session cleared by sign-out or deletion', async () => {
+    await setLinkedAccount(null);
+    storage.set(SESSION_KEY, 'old-refresh');
+    const slow = deferredFetch();
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockReturnValueOnce(slow.response)
+        .mockResolvedValueOnce({ ok: true, json: async () => ({ idToken: 'fresh-anon-id', refreshToken: 'fresh-anon-refresh', expiresIn: '3600' }) }),
+    );
+
+    const inFlight = getAnonymousIdToken();
+    await Promise.resolve();
+    await clearSession();
+    slow.resolve({ ok: true, json: async () => ({ id_token: 'old-id-2', refresh_token: 'old-refresh-2', expires_in: '3600' }) });
+
+    // The stale refresh is dropped; the request starts over as a new anonymous user.
+    await expect(inFlight).resolves.toBe('fresh-anon-id');
+    expect(storage.get(SESSION_KEY)).toBe('fresh-anon-refresh');
   });
 });

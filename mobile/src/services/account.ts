@@ -8,6 +8,7 @@ import {
   type GoogleCredentialProvider,
 } from './googleCredential';
 import { IdentityError, restAuthBackend, type AuthBackend, type IdpSession } from './identityToolkit';
+import { resetThisDevice } from './localData';
 import { mockAuthBackend } from './mockAuthBackend';
 import { onAccountLinked } from './sync';
 import { useSyncDevAccount } from './syncAccount';
@@ -237,7 +238,7 @@ export const deleteAccount = async (): Promise<void> => {
   await deps().provider().signOut().catch(() => {});
   await deps().backend.clearSession();
   if (useAppStore.getState().pendingUndo) useAppStore.getState().clearPendingUndo();
-  useAppStore.getState().resetAll();
+  await resetThisDevice();
 };
 
 /** Tests only. */

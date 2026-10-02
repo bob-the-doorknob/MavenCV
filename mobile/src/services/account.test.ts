@@ -29,7 +29,10 @@ vi.mock('@react-native-async-storage/async-storage', () => {
   };
 });
 
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
 import { useAppStore, useStorageStatus } from '../store/useAppStore';
+import { localCopyKeys } from './localData';
 import {
   AccountDeletionFailed,
   cancelConflict,
@@ -47,7 +50,7 @@ import { createMockGoogleProvider, unavailableGoogleProvider } from './googleCre
 import { MockAuthBackend } from './mockAuthBackend';
 import { signOutAndClear } from './signOut';
 import { startConflictPrompt, type PromptSpec } from '../utils/conflictPrompt';
-import { configureSync, resetSyncForTests } from './sync';
+import { configureSync, onForeground, resetSyncForTests, syncNow } from './sync';
 import { isLinkedAccount } from './syncAccount';
 import { MockSyncServer } from './syncMockServer';
 
@@ -58,6 +61,8 @@ let servers: Map<string, MockSyncServer>;
 let google: ReturnType<typeof createMockGoogleProvider>;
 let calls: SyncMethod[];
 let failDelete: boolean;
+/** When set, sync's responses (computed already, server state applied) wait for it — a request "in flight". */
+let hold: Promise<void> | null;
 
 const serverFor = (uid: string): MockSyncServer => {
   let server = servers.get(uid);
@@ -116,7 +121,15 @@ beforeEach(() => {
   calls = [];
   failDelete = false;
   configureAccount({ provider: () => google, backend, request: transport });
-  configureSync({ request: (method, body) => transport(method, body), isLinked: isLinkedAccount });
+  hold = null;
+  configureSync({
+    request: async (method, body) => {
+      const response = await transport(method, body);
+      if (hold) await hold;
+      return response;
+    },
+    isLinked: isLinkedAccount,
+  });
   return setLinkedAccount(null);
 });
 
@@ -390,5 +403,87 @@ describe('leaving the conflict prompt', () => {
     expect(hasPendingConflict()).toBe(false);
     expect(useAppStore.getState().targets).toBe(before);
     expect(getLinkedAccount()).toBeNull();
+  });
+});
+
+describe('responses that arrive after the device was cleared', () => {
+  const holdResponses = (): (() => void) => {
+    let release: () => void = () => {};
+    hold = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    return release;
+  };
+
+  it('a pull in flight when the account is deleted does not refill the device', async () => {
+    await seedCloudFromDeviceA();
+    const release = holdResponses();
+    onForeground();
+    await settle();
+    expect(calls.at(-1)).toBe('GET');
+
+    hold = null;
+    await deleteAccount();
+    release();
+    await settle();
+
+    expect(useAppStore.getState().targets).toEqual([]);
+    expect(useAppStore.getState().sync.baseServerUpdatedAt).toBeNull();
+    expect(getLinkedAccount()).toBeNull();
+  });
+
+  it('a push in flight when the user signs out does not write back', async () => {
+    await seedCloudFromDeviceA();
+    addTarget('edited just before signing out');
+    const release = holdResponses();
+    void syncNow({ pull: false });
+    await settle();
+    expect(calls.at(-1)).toBe('PUT');
+
+    await expect(signOutAndClear({ force: true })).resolves.toBe('cleared');
+    release();
+    await settle();
+
+    const { targets, sync } = useAppStore.getState();
+    expect(targets).toEqual([]);
+    expect(sync).toMatchObject({ baseServerUpdatedAt: null, ownerUid: null, lastSyncedAt: null });
+    expect(isLinkedAccount()).toBe(false);
+  });
+});
+
+describe('every wipe path deletes the local copies', () => {
+  const seedCopies = async () => {
+    for (const key of localCopyKeys()) await AsyncStorage.setItem(key, 'old copy');
+  };
+  const remaining = async () =>
+    (await Promise.all(localCopyKeys().map((key) => AsyncStorage.getItem(key)))).filter((value) => value !== null);
+
+  it('Sign out and clear this device', async () => {
+    await seedCloudFromDeviceA();
+    await seedCopies();
+    await expect(signOutAndClear()).resolves.toBe('cleared');
+    expect(await remaining()).toEqual([]);
+  });
+
+  it('Delete account', async () => {
+    await seedCloudFromDeviceA();
+    await seedCopies();
+    await deleteAccount();
+    expect(await remaining()).toEqual([]);
+  });
+
+  it('keeps them when Delete account fails, as it keeps everything else', async () => {
+    await seedCloudFromDeviceA();
+    await seedCopies();
+    failDelete = true;
+    await expect(deleteAccount()).rejects.toBeInstanceOf(AccountDeletionFailed);
+    expect(await remaining()).toHaveLength(localCopyKeys().length);
+  });
+
+  it('Sign out and clear for an unlinked device (the plain reset)', async () => {
+    addTarget();
+    await seedCopies();
+    await expect(signOutAndClear()).resolves.toBe('cleared');
+    expect(await remaining()).toEqual([]);
   });
 });

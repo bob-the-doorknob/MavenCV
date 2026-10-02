@@ -1,5 +1,7 @@
 import { create } from 'zustand';
 
+import { bumpEpoch } from '../store/accountEpoch';
+
 /**
  * The linked account, if any — the identity that sync and Purchases care
  * about. Separate from the Firebase *session*: a device always holds some
@@ -71,6 +73,8 @@ export const loadAccountState = async (): Promise<void> => {
 
 /** Updates memory first, so anything checking "linked?" sees it at once. */
 export const setLinkedAccount = async (account: LinkedAccount | null): Promise<void> => {
+  // Whose data this device holds just changed; in-flight work for the old state is stale.
+  bumpEpoch();
   useAccountState.setState({ account, loaded: true });
   await persist(account);
 };

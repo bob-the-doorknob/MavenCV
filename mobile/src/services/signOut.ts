@@ -1,5 +1,6 @@
 import { useAppStore } from '../store/useAppStore';
 import { signOutLinkedAccount } from './account';
+import { resetThisDevice } from './localData';
 import { syncNow } from './sync';
 import { isLinkedAccount } from './syncAccount';
 
@@ -18,7 +19,7 @@ export type SignOutResult = 'cleared' | 'unsynced';
 export const signOutAndClear = async ({ force = false }: { force?: boolean } = {}): Promise<SignOutResult> => {
   if (!isLinkedAccount()) {
     // Nothing to sign out of; the caller should have offered the plain reset.
-    useAppStore.getState().resetAll();
+    await resetThisDevice();
     return 'cleared';
   }
 
@@ -29,7 +30,7 @@ export const signOutAndClear = async ({ force = false }: { force?: boolean } = {
 
   // Unlinks in memory synchronously, before the wipe; the rest is awaited.
   const signedOut = signOutLinkedAccount();
-  useAppStore.getState().resetAll();
+  await resetThisDevice();
   await signedOut;
   // Not linked any more, so this makes no request; it only resets the status shown.
   void syncNow({ pull: false });

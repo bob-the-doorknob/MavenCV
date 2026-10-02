@@ -22,6 +22,7 @@ import { useAppStore, useStorageStatus } from '../store/useAppStore';
 import { ApiError, type SyncHttpResult } from './api';
 import { BACKOFF_MS, PUSH_DEBOUNCE_MS, UNDO_SAFETY_MS, configureSync, resetSyncForTests, startSync, syncNow, onForeground, useSyncStatus } from './sync';
 import { MockSyncServer } from './syncMockServer';
+import { resetThisDevice } from './localData';
 
 const REAL_NOW = Date.parse('2026-10-02T12:00:00.000Z');
 const DAY = 24 * 60 * 60 * 1_000;
@@ -505,5 +506,39 @@ describe('two devices with no edits', () => {
     await flush(BACKOFF_MS[4] * 2);
     expect(calls).toEqual([]);
     stop();
+  });
+});
+
+describe('a response that arrives after a reset', () => {
+  it('a pull in flight when the device is reset does not refill it', async () => {
+    const stamp = new Date(REAL_NOW - DAY).toISOString();
+    server.seed({
+      schemaVersion: 1,
+      targets: [{ id: 'from-cloud', roleId: 'software-engineer', level: 'internship', experience: 'x', createdAt: stamp, updatedAt: stamp, roadmap: [], focusTaskIds: [] }],
+      cvEntries: [],
+    });
+    const { request } = transport(server);
+    let release: () => void = () => {};
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    configureSync({
+      isLinked: () => linked,
+      request: async (method, body) => {
+        const response = await request(method, body);
+        await held;
+        return response;
+      },
+    });
+
+    const pulling = syncNow({ pull: true });
+    await flush();
+    await resetThisDevice();
+    release();
+    await pulling;
+
+    expect(useAppStore.getState().targets).toEqual([]);
+    expect(useAppStore.getState().sync.baseServerUpdatedAt).toBeNull();
+    expect(useSyncStatus.getState().status).toBe('idle');
   });
 });

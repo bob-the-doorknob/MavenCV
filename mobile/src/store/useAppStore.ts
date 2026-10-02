@@ -20,6 +20,7 @@ import type {
   Tombstones,
 } from '../types';
 import { buildSchedule, clampEstimatedWeeks } from '../utils/schedule';
+import { bumpEpoch } from './accountEpoch';
 import {
   canonicalJson,
   chooseActiveTargetId,
@@ -38,9 +39,70 @@ import {
 import { createId } from '../utils/id';
 import { calculateReadiness } from '../utils/readiness';
 
-const STORE_VERSION = 1;
-// Separate from persisted state: reporting a read failure must never write over it.
-export const useStorageStatus = create<{ ready: boolean; error: string | null }>(() => ({ ready: false, error: null }));
+export const STORE_VERSION = 1;
+
+/** Where the app's data lives in AsyncStorage. */
+export const STORAGE_KEY = 'trajectory-app-state';
+/**
+ * A copy of the raw saved data, written once, before a migration, when the
+ * stored version is older than this build's. Keyed by the version it was
+ * taken from, so a later migration can never overwrite an earlier copy.
+ */
+export const PRE_MIGRATION_KEY_PREFIX = `${STORAGE_KEY}-pre-migration-v`;
+/** Where "Start fresh" puts unreadable data before clearing it. */
+export const RECOVERY_KEY = `${STORAGE_KEY}-recovery`;
+/**
+ * Older builds wrote this on every read and write, so it only ever mirrored
+ * the current data. Nothing reads it any more; wipes delete it.
+ */
+export const LEGACY_BACKUP_KEY = `${STORAGE_KEY}-pre-migration-backup`;
+
+// Separate from persisted state: reporting a read or write failure must never write over it.
+export const useStorageStatus = create<{ ready: boolean; error: string | null; writeFailed: boolean }>(() => ({
+  ready: false,
+  error: null,
+  writeFailed: false,
+}));
+
+/** The stored payload's version, or null when it cannot be read. */
+const storedVersion = (raw: string): number | null => {
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (typeof parsed !== 'object' || parsed === null) return null;
+    const version = (parsed as { version?: unknown }).version;
+    // A payload from before versioning counts as version 0: older than any build.
+    return typeof version === 'number' ? version : 0;
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * Exported for tests. Writes the pre-migration copy if — and only if — the
+ * stored version is older than this build's and no copy for that version
+ * exists yet. Never overwrites, so a failed migration cannot replace it.
+ */
+export const savePreMigrationCopy = async (raw: string, currentVersion: number = STORE_VERSION): Promise<void> => {
+  const version = storedVersion(raw);
+  if (version === null || version >= currentVersion) return;
+  const key = `${PRE_MIGRATION_KEY_PREFIX}${version}`;
+  if ((await AsyncStorage.getItem(key)) !== null) return;
+  await AsyncStorage.setItem(key, raw);
+};
+
+/**
+ * Exported for tests. One write per save — the data and its "needs pushing"
+ * flag travel together. A failure is recorded for the UI instead of vanishing
+ * as an unhandled rejection, and cleared by the next successful write.
+ */
+export const writeState = async (name: string, value: string): Promise<void> => {
+  try {
+    await AsyncStorage.setItem(name, value);
+    if (useStorageStatus.getState().writeFailed) useStorageStatus.setState({ writeFailed: false });
+  } catch {
+    useStorageStatus.setState({ writeFailed: true });
+  }
+};
 
 /** At most this many tasks can be in focus at once. */
 export const MAX_FOCUS_TASKS = 2;
@@ -1052,7 +1114,11 @@ export const useAppStore = create<AppState>()(
       // A local wipe, as Settings describes it ("from this device"): no
       // tombstones, so the account's copy is untouched and a later sync
       // restores it, exactly like a fresh install.
-      resetAll: () => rawSet({ ...emptyState, pendingUndo: null }),
+      resetAll: () => {
+        // Anything still in flight was for the data being wiped.
+        bumpEpoch();
+        rawSet({ ...emptyState, pendingUndo: null });
+      },
 
       mergeRemote: (remote, serverUpdatedAt) => {
         const incoming = stripIncoming(remote);
@@ -1129,24 +1195,20 @@ export const useAppStore = create<AppState>()(
       };
     },
     {
-      name: 'trajectory-app-state',
+      name: STORAGE_KEY,
       version: STORE_VERSION,
       storage: createJSONStorage(() => ({
         ...AsyncStorage,
-        setItem: async (name: string, value: string) => {
-          // Subsequent saves replace the backup too, so explicitly deleted personal
-          // data is not retained in a stale migration copy.
-          await AsyncStorage.setItem(`${name}-pre-migration-backup`, value);
-          await AsyncStorage.setItem(name, value);
-        },
+        setItem: writeState,
         getItem: async (name: string) => {
           const saved = await AsyncStorage.getItem(name);
-          if (saved !== null) await AsyncStorage.setItem(`${name}-pre-migration-backup`, saved);
+          // Before migrate runs, and only for an older version.
+          if (saved !== null) await savePreMigrationCopy(saved).catch(() => {});
           return saved;
         },
       })),
       onRehydrateStorage: () => {
-        useStorageStatus.setState({ ready: false, error: null });
+        useStorageStatus.setState({ ready: false, error: null, writeFailed: false });
         return (_state, error) => useStorageStatus.setState({ ready: !error,
           error: error ? 'Saved data could not be loaded. Your original data is preserved. Retry or contact support; do not reinstall the app.' : null });
       },
