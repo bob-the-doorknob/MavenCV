@@ -48,6 +48,10 @@ Required checks to select in repository branch protection after the first succes
 
 Enable the workflow and require all four checks in branch protection/rulesets. Restrict who can change workflows, and review version/checksum updates. CI cannot enforce merge policy until these repository settings are enabled. Fork PRs may require a maintainer to approve the workflow run; never switch to `pull_request_target` to execute untrusted PR code with privileged credentials.
 
+## Dependency audit exceptions
+
+`scripts/check-audit.mjs` blocks on a high or critical vulnerable package whose **effective severity** is still high or critical. Effective severity is the highest severity among the advisories behind the package, including ones it inherits through dependencies, that have no valid exception. Moderate and low advisories never block and need no exception; they are printed as informational. A finding can be excepted by an entry in `scripts/audit-exceptions.json`: `{ advisory: "GHSA-…", package, severity, scope: "dev-tooling" | "unreachable", justification, owner, expires: "YYYY-MM-DD" }`, matched per advisory to the package the advisory is on. An entry is never used if the advisory is critical, the entry's severity is lower than the advisory's, its justification or owner is blank, it has expired, or it expires more than 90 days from today. A new high or critical advisory on an excepted package blocks until reviewed. A malformed exceptions file or audit report exits 2 (fail closed). Entries matching no current finding only warn, and every active exception is printed with its days remaining. Do not add an entry without checking the advisory is truly unreachable, and do not renew one without re-checking; the gate cannot judge reachability.
+
 ## Local verification
 
 ```
