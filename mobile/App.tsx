@@ -1,5 +1,5 @@
 import { useEffect, useMemo } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { AppState, StyleSheet, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import * as SplashScreen from 'expo-splash-screen';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
@@ -9,6 +9,7 @@ import { BrandSplash } from './src/components/BrandSplash';
 import { Button } from './src/components/ui';
 import { RootNavigator } from './src/navigation/RootNavigator';
 import { configureRevenueCat } from './src/services/revenueCat';
+import { startSync } from './src/services/sync';
 import { useAppStore, useStorageStatus } from './src/store/useAppStore';
 import type { Theme } from './src/theme/tokens';
 import { useAppFonts } from './src/theme/fonts';
@@ -29,6 +30,21 @@ export default function App() {
   useEffect(() => {
     configureRevenueCat();
   }, []);
+
+  // Sync starts only once saved data is loaded: merging into an empty store
+  // that has not finished hydrating would look like a fresh device. It never
+  // blocks rendering — every request runs in the background.
+  useEffect(() => {
+    if (!hydrated) {
+      return undefined;
+    }
+    return startSync((onActive) => {
+      const subscription = AppState.addEventListener('change', (next) => {
+        if (next === 'active') onActive();
+      });
+      return () => subscription.remove();
+    });
+  }, [hydrated]);
 
   // The splash also comes down on a storage failure — that state needs a
   // retry button, which the native splash cannot draw.

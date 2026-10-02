@@ -6,17 +6,34 @@ import { useShallow } from 'zustand/react/shallow';
 import type { Level } from '../data/roles';
 import type {
   CvEntry,
+  CvEntryTombstone,
   OnboardingDraft,
   CvEntryStatus,
   MilestoneSort,
   RoadmapTask,
   SchedulePace,
   Target,
+  TargetTombstone,
   TaskPriority,
   TaskStatus,
   TaskStep,
+  Tombstones,
 } from '../types';
 import { buildSchedule, clampEstimatedWeeks } from '../utils/schedule';
+import {
+  canonicalJson,
+  chooseActiveTargetId,
+  clampFutureStamps,
+  fromRecords,
+  mergeSnapshots,
+  monotonicStamp,
+  recordsEqual,
+  restoreDeviceLocalFields,
+  stripForPush,
+  stripIncoming,
+  toRecords,
+  type SyncRecords,
+} from '../utils/syncMerge';
 import { createId } from '../utils/id';
 import { calculateReadiness } from '../utils/readiness';
 
@@ -29,19 +46,46 @@ export const MAX_FOCUS_TASKS = 2;
 
 const CHECK_IN_INTERVAL_MS = 7 * 24 * 60 * 60 * 1_000;
 
+/**
+ * Bookkeeping for cloud sync, persisted in the same write as the data it
+ * describes — so a force-quit can never leave a change on disk without the
+ * flag that says it still needs pushing.
+ */
+export interface SyncMeta {
+  /** True while this device holds changes the server may not have. */
+  dirty: boolean;
+  /** Bumped on every local change, so a push can tell if more arrived mid-flight. */
+  revision: number;
+  /** The server's version this device last agreed with. Opaque; compared by equality. */
+  baseServerUpdatedAt: string | null;
+  lastSyncedAt: string | null;
+}
+
 export interface PersistedAppState {
   targets: Target[];
   activeTargetId: string | null;
   cvEntries: CvEntry[];
   /** Null unless the user is part-way through onboarding. */
   onboardingDraft: OnboardingDraft | null;
+  /** Deletes waiting to reach (or already on) the server. See docs/sync-contract.md §7. */
+  tombstones: Tombstones;
+  sync: SyncMeta;
 }
+
+export const emptySyncMeta: SyncMeta = {
+  dirty: false,
+  revision: 0,
+  baseServerUpdatedAt: null,
+  lastSyncedAt: null,
+};
 
 const emptyState: PersistedAppState = {
   targets: [],
   activeTargetId: null,
   cvEntries: [],
   onboardingDraft: null,
+  tombstones: { targets: [], cvEntries: [] },
+  sync: emptySyncMeta,
 };
 
 type ShapeCheck = { ok: true } | { ok: false; reason: string };
@@ -90,10 +134,13 @@ type PersistedRoadmapTask = Omit<RoadmapTask, 'steps' | 'estimatedWeeks'> & {
   steps?: TaskStep[];
   estimatedWeeks?: number;
 };
-type PersistedTarget = Omit<Target, 'roadmap' | 'focusTaskIds'> & {
+type PersistedTarget = Omit<Target, 'roadmap' | 'focusTaskIds' | 'updatedAt'> & {
   roadmap: PersistedRoadmapTask[];
   focusTaskIds?: string[];
+  /** Absent on anything saved before sync existed. */
+  updatedAt?: string;
 };
+type PersistedCvEntry = Omit<CvEntry, 'updatedAt'> & { updatedAt?: string };
 
 /**
  * Every check below only requires the fields the app actually reads
@@ -133,10 +180,11 @@ const isTarget = (value: unknown): value is PersistedTarget =>
   isOptional(value.schedulePace, isSchedulePace) &&
   isOptional(value.readyCelebratedAt, isString) &&
   isOptional(value.milestoneSort, isMilestoneSort) &&
+  isOptional(value.updatedAt, isString) &&
   Array.isArray(value.roadmap) &&
   value.roadmap.every(isRoadmapTask);
 
-const isCvEntry = (value: unknown): value is CvEntry =>
+const isCvEntry = (value: unknown): value is PersistedCvEntry =>
   isRecord(value) &&
   isString(value.id) &&
   isString(value.targetId) &&
@@ -144,13 +192,45 @@ const isCvEntry = (value: unknown): value is CvEntry =>
   isCvEntryStatus(value.status) &&
   isString(value.text) &&
   isOptional(value.suggestions, isStringArray) &&
-  isString(value.createdAt);
+  isString(value.createdAt) &&
+  isOptional(value.updatedAt, isString);
+
+const isTargetTombstone = (value: unknown): value is TargetTombstone =>
+  isRecord(value) && isString(value.id) && isString(value.updatedAt) && isString(value.deletedAt);
+
+const isCvEntryTombstone = (value: unknown): value is CvEntryTombstone =>
+  isRecord(value) && isTargetTombstone(value) && isString(value.targetId);
+
+/**
+ * Lenient on purpose: tombstones and sync bookkeeping are rebuildable, so a
+ * malformed one is dropped rather than failing the whole load and locking
+ * the user out of their roadmap.
+ */
+const normalizeTombstones = (value: unknown): Tombstones => {
+  if (!isRecord(value)) return { targets: [], cvEntries: [] };
+  return {
+    targets: Array.isArray(value.targets) ? value.targets.filter(isTargetTombstone) : [],
+    cvEntries: Array.isArray(value.cvEntries) ? value.cvEntries.filter(isCvEntryTombstone) : [],
+  };
+};
+
+const normalizeSyncMeta = (value: unknown): SyncMeta => {
+  if (!isRecord(value)) return emptySyncMeta;
+  return {
+    dirty: isBoolean(value.dirty) ? value.dirty : false,
+    revision: isNumber(value.revision) ? value.revision : 0,
+    baseServerUpdatedAt: isString(value.baseServerUpdatedAt) ? value.baseServerUpdatedAt : null,
+    lastSyncedAt: isString(value.lastSyncedAt) ? value.lastSyncedAt : null,
+  };
+};
 
 interface PersistedShape {
   targets: PersistedTarget[];
   activeTargetId: string | null;
-  cvEntries: CvEntry[];
+  cvEntries: PersistedCvEntry[];
   onboardingDraft?: OnboardingDraft | null;
+  tombstones?: unknown;
+  sync?: unknown;
 }
 
 /** Fills the fields added after the first release, leaving everything else untouched. */
@@ -165,6 +245,13 @@ const normalizeTarget = (target: PersistedTarget): Target => ({
   ...target,
   roadmap: target.roadmap.map(normalizeTask),
   focusTaskIds: target.focusTaskIds ?? [],
+  // Pre-sync data: the last moment we can vouch for is when it was created.
+  updatedAt: target.updatedAt ?? target.createdAt,
+});
+
+const normalizeCvEntry = (entry: PersistedCvEntry): CvEntry => ({
+  ...entry,
+  updatedAt: entry.updatedAt ?? entry.createdAt,
 });
 
 const checkPersistedAppState = (value: unknown): ShapeCheck => {
@@ -218,22 +305,47 @@ export const migrate = (persistedState: unknown): PersistedAppState => {
   return {
     ...persisted,
     targets,
+    cvEntries: persisted.cvEntries.map(normalizeCvEntry),
     // A draft written before this field existed is simply absent.
     onboardingDraft: persisted.onboardingDraft ?? null,
+    tombstones: normalizeTombstones(persisted.tombstones),
+    sync: normalizeSyncMeta(persisted.sync),
     activeTargetId: targets.some((target) => target.id === persisted.activeTargetId)
       ? persisted.activeTargetId
       : targets[0]?.id ?? null,
   };
 };
 
+/**
+ * Validates and normalizes records arriving from the server with the same
+ * rules used for data loaded from disk. Returns null if anything is
+ * malformed: sync then reports an error and touches nothing local.
+ */
+export const parseIncomingRecords = (targets: unknown[], cvEntries: unknown[]): SyncRecords | null => {
+  const parsedTargets: SyncRecords['targets'] = [];
+  for (const value of targets) {
+    if (isTargetTombstone(value)) parsedTargets.push({ id: value.id, updatedAt: value.updatedAt, deletedAt: value.deletedAt });
+    else if (isTarget(value)) parsedTargets.push(normalizeTarget(value));
+    else return null;
+  }
+  const parsedEntries: SyncRecords['cvEntries'] = [];
+  for (const value of cvEntries) {
+    if (isCvEntryTombstone(value)) {
+      parsedEntries.push({ id: value.id, targetId: value.targetId, updatedAt: value.updatedAt, deletedAt: value.deletedAt });
+    } else if (isCvEntry(value)) parsedEntries.push(normalizeCvEntry(value));
+    else return null;
+  }
+  return { targets: parsedTargets, cvEntries: parsedEntries };
+};
+
 export type AddTargetInput = Omit<
   Target,
-  'id' | 'createdAt' | 'roadmap' | 'focusTaskIds' | 'lastCheckInAt'
+  'id' | 'createdAt' | 'updatedAt' | 'roadmap' | 'focusTaskIds' | 'lastCheckInAt'
 > & {
   roadmap?: RoadmapTask[];
 };
 
-export type AddCvEntryInput = Omit<CvEntry, 'id' | 'createdAt'>;
+export type AddCvEntryInput = Omit<CvEntry, 'id' | 'createdAt' | 'updatedAt'>;
 
 /**
  * Enough to put back exactly what a delete removed, including where it sat.
@@ -329,7 +441,106 @@ interface AppState extends PersistedAppState {
   addCvEntry: (entry: AddCvEntryInput) => string;
   updateCvEntry: (id: string, updates: Partial<Pick<CvEntry, 'status' | 'text' | 'suggestions'>>) => void;
   resetAll: () => void;
+  /**
+   * Merges a server snapshot into whatever is local *right now* — not into a
+   * copy read before the request, which would drop an edit made while it was
+   * in flight. Returns true when the result differs from what the server
+   * holds, i.e. a push is still needed.
+   */
+  mergeRemote: (remote: SyncRecords, serverUpdatedAt: string | null) => boolean;
+  /** Bookkeeping only; never marks the data itself as changed. */
+  setSyncMeta: (meta: Partial<SyncMeta>) => void;
+  /** See clampFutureStamps. Marks dirty when anything was re-stamped. */
+  repairFutureStamps: (now: number) => void;
 }
+
+type AppSet = (partial: Partial<AppState> | ((state: AppState) => Partial<AppState>)) => void;
+
+const withoutStamp = <T extends { updatedAt: string }>(record: T): string =>
+  canonicalJson({ ...record, updatedAt: '' });
+
+/**
+ * The one place sync bookkeeping happens. Every store action goes through
+ * it, so a future action cannot forget to stamp or to record a delete:
+ *
+ * - a target or CV entry that really changed gets a fresh monotonic
+ *   `updatedAt` (a new object with identical content keeps its old stamp);
+ * - one that disappeared leaves a tombstone, and one that comes back (undo)
+ *   takes its tombstone away again;
+ * - anything at all changing marks the data dirty and bumps the revision.
+ *
+ * Exported for tests. `now` is injected so stamps are deterministic there.
+ */
+export const stampChanges = (
+  current: PersistedAppState,
+  patch: Partial<PersistedAppState>,
+  now: number,
+): Partial<PersistedAppState> => {
+  let changed = false;
+  let tombstones = current.tombstones;
+  const out: Partial<PersistedAppState> = { ...patch };
+
+  if (patch.targets && patch.targets !== current.targets) {
+    const previous = new Map(current.targets.map((target) => [target.id, target]));
+    const next = patch.targets.map((target) => {
+      const before = previous.get(target.id);
+      if (before === target) return target;
+      if (before && withoutStamp(before) === withoutStamp(target)) return before;
+      changed = true;
+      return { ...target, updatedAt: monotonicStamp(before?.updatedAt, now) };
+    });
+    const nextIds = new Set(next.map((target) => target.id));
+    const removed: TargetTombstone[] = current.targets
+      .filter((target) => !nextIds.has(target.id))
+      .map((target) => {
+        const stamp = monotonicStamp(target.updatedAt, now);
+        return { id: target.id, updatedAt: stamp, deletedAt: stamp };
+      });
+    if (removed.length > 0) changed = true;
+    tombstones = {
+      ...tombstones,
+      targets: [
+        ...tombstones.targets.filter((tomb) => !nextIds.has(tomb.id) && !removed.some((r) => r.id === tomb.id)),
+        ...removed,
+      ],
+    };
+    out.targets = next;
+  }
+
+  if (patch.cvEntries && patch.cvEntries !== current.cvEntries) {
+    const previous = new Map(current.cvEntries.map((entry) => [entry.id, entry]));
+    const next = patch.cvEntries.map((entry) => {
+      const before = previous.get(entry.id);
+      if (before === entry) return entry;
+      if (before && withoutStamp(before) === withoutStamp(entry)) return before;
+      changed = true;
+      return { ...entry, updatedAt: monotonicStamp(before?.updatedAt, now) };
+    });
+    const nextIds = new Set(next.map((entry) => entry.id));
+    const removed: CvEntryTombstone[] = current.cvEntries
+      .filter((entry) => !nextIds.has(entry.id))
+      .map((entry) => {
+        const stamp = monotonicStamp(entry.updatedAt, now);
+        return { id: entry.id, targetId: entry.targetId, updatedAt: stamp, deletedAt: stamp };
+      });
+    if (removed.length > 0) changed = true;
+    tombstones = {
+      ...tombstones,
+      cvEntries: [
+        ...tombstones.cvEntries.filter((tomb) => !nextIds.has(tomb.id) && !removed.some((r) => r.id === tomb.id)),
+        ...removed,
+      ],
+    };
+    out.cvEntries = next;
+  }
+
+  if (!changed) return out;
+  return {
+    ...out,
+    tombstones,
+    sync: { ...current.sync, dirty: true, revision: current.sync.revision + 1 },
+  };
+};
 
 /** Applies `map` to the active target only; other targets pass through unchanged. */
 const mapActiveTarget = (
@@ -374,16 +585,26 @@ const mapTaskSteps = (
 
 export const useAppStore = create<AppState>()(
   persist(
-    (set, get) => ({
+    (rawSet, get) => {
+      // Every action below writes through this; only sync and resetAll use rawSet.
+      const set: AppSet = (partial) => {
+        const current = get();
+        const patch = typeof partial === 'function' ? partial(current) : partial;
+        rawSet(stampChanges(current, patch, Date.now()) as Partial<AppState>);
+      };
+
+      return {
       ...emptyState,
 
       addTarget: (input) => {
         const id = createId();
+        const createdAt = new Date().toISOString();
         const target: Target = {
           focusTaskIds: [],
           ...input,
           id,
-          createdAt: new Date().toISOString(),
+          createdAt,
+          updatedAt: createdAt,
           roadmap: input.roadmap ?? [],
         };
         set((state) => ({ targets: [...state.targets, target], activeTargetId: id }));
@@ -487,6 +708,7 @@ export const useAppStore = create<AppState>()(
           status: 'pending',
           text: '',
           createdAt: completedAt,
+          updatedAt: completedAt,
         };
 
         set((state) => ({
@@ -796,7 +1018,8 @@ export const useAppStore = create<AppState>()(
 
       addCvEntry: (entry) => {
         const id = createId();
-        const cvEntry: CvEntry = { ...entry, id, createdAt: new Date().toISOString() };
+        const createdAt = new Date().toISOString();
+        const cvEntry: CvEntry = { ...entry, id, createdAt, updatedAt: createdAt };
         set((state) => ({ cvEntries: [...state.cvEntries, cvEntry] }));
         return id;
       },
@@ -806,8 +1029,59 @@ export const useAppStore = create<AppState>()(
           cvEntries: state.cvEntries.map((entry) => (entry.id === id ? { ...entry, ...updates } : entry)),
         })),
 
-      resetAll: () => set(emptyState),
-    }),
+      // A local wipe, as Settings describes it ("from this device"): no
+      // tombstones, so the account's copy is untouched and a later sync
+      // restores it, exactly like a fresh install.
+      resetAll: () => rawSet({ ...emptyState, pendingUndo: null }),
+
+      mergeRemote: (remote, serverUpdatedAt) => {
+        const incoming = stripIncoming(remote);
+        let needsPush = false;
+        rawSet((state) => {
+          // Incoming records are normalized (parseIncomingRecords fills
+          // defaults such as a task's `weight`); records built in memory by
+          // actions may not be yet — reloading from disk would normalize them.
+          // Merging the two shapes made an identical, identically stamped
+          // record look different: the tie-break kept the local shape, the
+          // result never matched the server, and every pull pushed again.
+          // Normalizing local first makes "same data" compare as same.
+          const local = toRecords({
+            ...state,
+            targets: state.targets.map(normalizeTarget),
+            cvEntries: state.cvEntries.map(normalizeCvEntry),
+          });
+          const merged = fromRecords(mergeSnapshots(local, incoming, Date.now()));
+          const targets = restoreDeviceLocalFields(state.targets, merged.targets);
+          needsPush = !recordsEqual(stripForPush(toRecords(merged)), stripForPush(incoming));
+          return {
+            targets,
+            cvEntries: merged.cvEntries,
+            tombstones: merged.tombstones,
+            activeTargetId: chooseActiveTargetId(state.activeTargetId, targets),
+            sync: {
+              ...state.sync,
+              baseServerUpdatedAt: serverUpdatedAt,
+              // Still dirty if this device holds anything the server lacks.
+              dirty: needsPush,
+            },
+          };
+        });
+        return needsPush;
+      },
+
+      setSyncMeta: (meta) => rawSet((state) => ({ sync: { ...state.sync, ...meta } })),
+
+      repairFutureStamps: (now) =>
+        rawSet((state) => {
+          const repaired = clampFutureStamps(state, now);
+          if (repaired === state) return {};
+          return {
+            ...repaired,
+            sync: { ...state.sync, dirty: true, revision: state.sync.revision + 1 },
+          };
+        }),
+      };
+    },
     {
       name: 'trajectory-app-state',
       version: STORE_VERSION,
@@ -836,7 +1110,14 @@ export const useAppStore = create<AppState>()(
         ...currentState,
         ...migrate(persistedState),
       }),
-      partialize: ({ targets, activeTargetId, cvEntries, onboardingDraft }) => ({ targets, activeTargetId, cvEntries, onboardingDraft }),
+      partialize: ({ targets, activeTargetId, cvEntries, onboardingDraft, tombstones, sync }) => ({
+        targets,
+        activeTargetId,
+        cvEntries,
+        onboardingDraft,
+        tombstones,
+        sync,
+      }),
     },
   ),
 );

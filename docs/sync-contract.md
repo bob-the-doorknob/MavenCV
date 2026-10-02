@@ -172,8 +172,6 @@ with **400 `INVALID_SYNC_INPUT`** when:
 - any record lacks `id` or `updatedAt`, or either is the wrong type;
 - an `id` appears twice in the same array;
 - a timestamp (`updatedAt`, `deletedAt`, `createdAt`) is not ISO 8601 UTC;
-- a timestamp is more than **24 hours ahead** of server time (a broken clock,
-  which would otherwise win every future merge);
 - a live target lacks `roleId`, `level`, `experience`, `createdAt` or a
   `roadmap` array, or a live CV entry lacks `targetId`, `taskId`, `status` or
   `text`;
@@ -181,12 +179,19 @@ with **400 `INVALID_SYNC_INPUT`** when:
   `not_started`, `in_progress` or `done`; a CV entry `status` is not `pending`,
   `ready` or `failed`.
 
+A timestamp (`updatedAt`, `deletedAt`, `createdAt`) more than **24 hours ahead**
+of server time is rejected with **400 `SYNC_CLOCK_SKEW`** — a separate code, not
+`INVALID_SYNC_INPUT`, because the fix is on the user's side ("check your device
+date") and the client must not retry it in a loop. A broken clock would
+otherwise win every future merge.
+
 Unknown fields inside a record are **kept and returned unchanged**. A newer
 client may add fields an older server does not know yet; dropping them would
 silently lose data on the next round trip.
 
 The server does **not** check that a CV entry's `targetId` points at a stored
-target. Two devices can briefly disagree; the client cleans up orphans.
+target. The client treats entries of a deleted target as deleted (§7); an entry
+whose target is simply absent is kept and is harmless.
 
 ### Size and count limits
 
@@ -219,6 +224,7 @@ Messages are for logs; the app shows its own copy.
 | --- | --- | --- | --- |
 | 400 | `INVALID_SYNC_INPUT` | `invalid_response` | Stop retrying; status `error`. |
 | 400 | `SYNC_SCHEMA_UNSUPPORTED` | `invalid_response` | Stop retrying; status `error`. |
+| 400 | `SYNC_CLOCK_SKEW` | `invalid_response` | Stop retrying; status `clock_skew` until the app returns to the foreground. |
 | 401 | `AUTHENTICATION_REQUIRED` | `auth` | Retry with backoff after a token refresh. |
 | 401/403 | `APP_CHECK_REQUIRED` | `auth` | Retry with backoff. |
 | 403 | `SYNC_ACCOUNT_REQUIRED` | `auth` | Stop until the account is linked. |
@@ -296,6 +302,10 @@ ties it should not. Two rules keep this bounded:
   made after seeing a record therefore always beats that record, even if this
   device's clock is minutes behind the one that wrote it.
 - The server rejects timestamps more than 24 hours in the future (§5).
+- Before every push the client re-stamps anything more than **1 hour** ahead of
+  its own clock to "now". While the clock is still wrong this changes nothing
+  and the server keeps refusing; once the user fixes the date it brings the
+  wrongly stamped records back into range, so sync recovers on its own.
 
 Skew of a few minutes can still decide a genuine race between two devices
 editing the same target within those minutes. That is accepted.

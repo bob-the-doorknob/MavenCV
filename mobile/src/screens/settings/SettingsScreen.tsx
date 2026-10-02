@@ -14,6 +14,13 @@ import { resolveRoleTitle } from '../../data/roles';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { checkProEntitlement } from '../../services/proStatus';
 import { restorePurchases } from '../../services/revenueCat';
+import { onAccountLinked, onForeground, useSyncStatus } from '../../services/sync';
+import {
+  canSimulateLinkedAccount,
+  isLinkedAccount,
+  setSimulateLinkedAccount,
+  useSyncDevAccount,
+} from '../../services/syncAccount';
 import { EditTargetSheet } from '../roadmap/EditTargetSheet';
 import { ProUpsellSheet } from '../cv/ProUpsellSheet';
 import { useActiveTarget, useAppStore } from '../../store/useAppStore';
@@ -21,6 +28,7 @@ import { minTouchTarget, spacing, typography, type Theme } from '../../theme/tok
 import { useTheme } from '../../theme/useTheme';
 import { formatExportText } from '../../utils/exportText';
 import { formatMonthYear } from '../../utils/targetDate';
+import { syncStatusCopy } from '../../utils/syncStatusCopy';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 
@@ -38,6 +46,11 @@ export function SettingsScreen() {
   const [restoring, setRestoring] = useState(false);
   const [editVisible, setEditVisible] = useState(false);
   const [upsellVisible, setUpsellVisible] = useState(false);
+  const { status: syncStatus, lastSyncedAt } = useSyncStatus();
+  // Read so the row re-renders when the dev switch flips.
+  const simulateLinked = useSyncDevAccount((state) => state.simulateLinked);
+  const linked = isLinkedAccount();
+  const syncCopy = syncStatusCopy(syncStatus, linked, lastSyncedAt, Date.now());
   const [regenerating, setRegenerating] = useState(false);
   const targetCount = useAppStore((state) => state.targets.length);
 
@@ -195,6 +208,32 @@ export function SettingsScreen() {
               subtitle={restoring ? 'Checking with the store' : 'Bring back Pro on this device'}
               title="Restore purchases"
             />
+          </Card>
+        </View>
+
+        <View style={styles.section}>
+          <SectionLabel>Sync</SectionLabel>
+          <Card>
+            <SettingsRow
+              isFirst
+              // A manual retry. It also lifts a date-check pause, like reopening the app.
+              onPress={() => {
+                if (linked) onForeground();
+              }}
+              subtitle={syncCopy.subtitle}
+              title={syncCopy.title}
+            />
+            {canSimulateLinkedAccount() ? (
+              <SettingsRow
+                isFirst={false}
+                onPress={() => {
+                  setSimulateLinkedAccount(!simulateLinked);
+                  if (!simulateLinked) onAccountLinked();
+                }}
+                subtitle="Development build only. Syncs with the in-memory mock server."
+                title={simulateLinked ? 'Simulated account: on' : 'Simulated account: off'}
+              />
+            ) : null}
           </Card>
         </View>
 

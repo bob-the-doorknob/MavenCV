@@ -70,6 +70,12 @@ export interface Target {
   readyCelebratedAt?: string;
   /** View preference, remembered per target. Defaults to 'roadmap'. */
   milestoneSort?: MilestoneSort;
+  /**
+   * When anything in this target last changed, on this device's clock.
+   * Stamped centrally by the store on every mutation; sync's last-write-wins
+   * compares it. Data from before sync falls back to createdAt.
+   */
+  updatedAt: string;
 }
 
 export type SchedulePace = 'comfortable' | 'ambitious';
@@ -88,6 +94,31 @@ export interface CvEntry {
   text: string;
   suggestions?: string[];
   createdAt: string;
+  /** Last change, stamped by the store. Data from before sync falls back to createdAt. */
+  updatedAt: string;
+}
+
+/**
+ * What remains of a deleted target, so the delete reaches every device.
+ * Terminal: a tombstone beats a live record with the same id whatever the
+ * timestamps (docs/sync-contract.md §7).
+ */
+export interface TargetTombstone {
+  id: string;
+  updatedAt: string;
+  deletedAt: string;
+}
+
+export interface CvEntryTombstone {
+  id: string;
+  targetId: string;
+  updatedAt: string;
+  deletedAt: string;
+}
+
+export interface Tombstones {
+  targets: TargetTombstone[];
+  cvEntries: CvEntryTombstone[];
 }
 
 export interface ApiErrorBody {

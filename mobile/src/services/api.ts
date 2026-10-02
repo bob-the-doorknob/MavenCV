@@ -7,6 +7,7 @@ import { clampEstimatedWeeks } from '../utils/schedule';
 import { getAuthToken } from './auth';
 import { getAppCheckToken } from './appCheck';
 import { hasAiConsent, loadConsent } from './privacy';
+import { SYNC_MAX_BODY_BYTES, mockSyncServer, utf8Length } from './syncMockServer';
 
 /** normalizeRoadmapInput rejects an experience longer than this. */
 const MAX_EXPERIENCE_LENGTH = 4_000;
@@ -14,6 +15,8 @@ const MAX_EXPERIENCE_LENGTH = 4_000;
 const MAX_TARGET_ROLE_LENGTH = 80;
 
 const ROADMAP_TIMEOUT_MS = 120_000;
+/** Sync moves no AI work, so it has no reason to wait as long as generation. */
+const SYNC_TIMEOUT_MS = 30_000;
 const CV_BULLET_TIMEOUT_MS = 120_000;
 const EXTRACT_PROFILE_TIMEOUT_MS = 120_000;
 
@@ -21,11 +24,18 @@ export type ApiErrorKind = 'rate_limited' | 'network' | 'server' | 'invalid_resp
 
 export class ApiError extends Error {
   public readonly kind: ApiErrorKind;
+  /**
+   * The backend's error code, when it sent one. Screens never read it (they
+   * use getErrorMessage); sync does, to tell a wrong device clock apart from
+   * other rejected input.
+   */
+  public readonly code: string | undefined;
 
-  public constructor(kind: ApiErrorKind, message: string) {
+  public constructor(kind: ApiErrorKind, message: string, code?: string) {
     super(message);
     this.name = 'ApiError';
     this.kind = kind;
+    this.code = code;
   }
 }
 
@@ -75,6 +85,12 @@ const ERROR_KINDS_BY_CODE: Readonly<Record<string, ApiErrorKind>> = {
   INVALID_ROADMAP_INPUT: 'invalid_response',
   INVALID_CV_BULLET_INPUT: 'invalid_response',
   INVALID_CV_PROFILE_INPUT: 'invalid_response',
+  // docs/sync-contract.md §6. SYNC_CONFLICT never becomes an ApiError.
+  SYNC_ACCOUNT_REQUIRED: 'auth',
+  INVALID_SYNC_INPUT: 'invalid_response',
+  SYNC_CLOCK_SKEW: 'invalid_response',
+  SYNC_SCHEMA_UNSUPPORTED: 'invalid_response',
+  SYNC_PAYLOAD_TOO_LARGE: 'invalid_response',
 };
 
 const kindFromStatus = (status: number): ApiErrorKind => {
@@ -99,6 +115,18 @@ const readErrorResponse = async (response: Response): Promise<ApiError> => {
   return new ApiError(
     (code === undefined ? undefined : ERROR_KINDS_BY_CODE[code]) ?? kindFromStatus(response.status),
     message ?? `Backend request failed (${response.status}).`,
+    code,
+  );
+};
+
+/** Same envelope as readErrorResponse, for a body already parsed (the mock server). */
+const errorFromBody = (status: number, body: unknown): ApiError => {
+  const error = isRecord(body) && isRecord(body.error) ? body.error : undefined;
+  const code = typeof error?.code === 'string' ? error.code : undefined;
+  return new ApiError(
+    (code === undefined ? undefined : ERROR_KINDS_BY_CODE[code]) ?? kindFromStatus(status),
+    typeof error?.message === 'string' ? error.message : `Sync request failed (${status}).`,
+    code,
   );
 };
 
@@ -1253,4 +1281,78 @@ const mockExtractProfile = async (roleId: string | undefined): Promise<ExtractPr
 
   const experienceText = (roleId && MOCK_CV_SUMMARIES_BY_ROLE_ID[roleId]) || GENERIC_MOCK_CV_SUMMARY;
   return { experienceText, questions: [] };
+};
+
+export type SyncHttpResult = { kind: 'ok'; body: unknown } | { kind: 'conflict'; body: unknown };
+
+/**
+ * GET or PUT /api/sync (docs/sync-contract.md). Unlike the AI routes there is
+ * no AI-consent gate — nothing here reaches Gemini — and a 409 is returned
+ * rather than thrown, because its body carries the server's snapshot for the
+ * caller to merge. Callers check for a linked account first; this function
+ * does not, so it never decides on its own to touch the network.
+ */
+export const requestSync = async (method: 'GET' | 'PUT', body?: unknown): Promise<SyncHttpResult> => {
+  const json = method === 'PUT' ? JSON.stringify(body) : undefined;
+  if (json !== undefined && utf8Length(json) > SYNC_MAX_BODY_BYTES) {
+    // Refused before the network: the server would only refuse it too.
+    throw new ApiError('invalid_response', 'Snapshot exceeds 900 KB.', 'SYNC_PAYLOAD_TOO_LARGE');
+  }
+
+  if (isMockMode()) {
+    const failure = mockFailureKind();
+    if (failure) {
+      throw new ApiError(failure, `Mock ${failure} failure.`);
+    }
+    await delay(150);
+    const response = method === 'GET' ? mockSyncServer.get() : mockSyncServer.put(json ?? '');
+    if (response.status === 200) return { kind: 'ok', body: response.body };
+    if (response.status === 409) return { kind: 'conflict', body: response.body };
+    throw errorFromBody(response.status, response.body);
+  }
+
+  const baseUrl = requireBaseUrl();
+  let appCheckToken: string;
+  try {
+    appCheckToken = await getAppCheckToken();
+  } catch {
+    throw new ApiError('auth', 'App verification failed. Use a configured development or store build.');
+  }
+  const token = await getAuthToken();
+  if (!token) throw new ApiError('auth', 'Unable to authenticate. Check your connection and Firebase configuration.');
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), SYNC_TIMEOUT_MS);
+  try {
+    const response = await fetch(`${baseUrl}/api/sync`, {
+      method,
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'X-Firebase-AppCheck': appCheckToken,
+        ...(json === undefined ? {} : { 'Content-Type': 'application/json' }),
+      },
+      ...(json === undefined ? {} : { body: json }),
+      signal: controller.signal,
+    });
+    if (response.status === 409) {
+      try {
+        return { kind: 'conflict', body: await response.json() };
+      } catch (error) {
+        if (isAbortError(error)) throw error;
+        throw new ApiError('invalid_response', 'Conflict response was not valid JSON.');
+      }
+    }
+    if (!response.ok) throw await readErrorResponse(response);
+    try {
+      return { kind: 'ok', body: await response.json() };
+    } catch (error) {
+      if (isAbortError(error)) throw error;
+      throw new ApiError('invalid_response', 'Response was not valid JSON.');
+    }
+  } catch (error) {
+    if (error instanceof ApiError) throw error;
+    throw new ApiError('network', isAbortError(error) ? 'Request timed out.' : 'Network request failed.');
+  } finally {
+    clearTimeout(timeout);
+  }
 };
