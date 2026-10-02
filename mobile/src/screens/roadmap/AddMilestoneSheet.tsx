@@ -2,10 +2,11 @@ import { useEffect, useMemo, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
 import { Button, Chip, SectionLabel, Sheet, TextArea, TextField } from '../../components/ui';
-import { useAppStore } from '../../store/useAppStore';
+import { useActiveTarget, useAppStore } from '../../store/useAppStore';
 import { spacing, typography, type Theme } from '../../theme/tokens';
 import { useTheme } from '../../theme/useTheme';
 import { priorityLabels } from '../../utils/groupTasks';
+import { atLimit, limitMessage } from '../../utils/limits';
 import type { TaskPriority } from '../../types';
 
 const PRIORITIES: readonly TaskPriority[] = [3, 2, 1];
@@ -37,9 +38,14 @@ export function AddMilestoneSheet({ visible, onClose }: AddMilestoneSheetProps) 
     }
   }, [visible]);
 
-  const canSave = title.trim().length > 0;
+  const milestoneCount = useActiveTarget()?.roadmap.length ?? 0;
+  const full = atLimit('milestones', milestoneCount);
+  const canSave = title.trim().length > 0 && !full;
 
   const save = (): void => {
+    if (full) {
+      return;
+    }
     if (!canSave) {
       setTouched(true);
       return;
@@ -105,6 +111,7 @@ export function AddMilestoneSheet({ visible, onClose }: AddMilestoneSheetProps) 
         </View>
       </View>
 
+      {full ? <Text style={styles.body}>{limitMessage('milestones')}</Text> : null}
       <Button disabled={!canSave} label="Add milestone" onPress={save} />
     </Sheet>
   );

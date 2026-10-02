@@ -247,7 +247,7 @@ describe('pull', () => {
     await syncNow({ pull: true });
 
     expect(useAppStore.getState().targets).toBe(before);
-    expect(useSyncStatus.getState().status).toBe('error');
+    expect(useSyncStatus.getState().status).toBe('update_required');
   });
 });
 
@@ -380,7 +380,7 @@ describe('failures', () => {
     await flush(BACKOFF_MS[4] * 2);
 
     expect(calls).toHaveLength(1);
-    expect(useSyncStatus.getState().status).toBe('error');
+    expect(useSyncStatus.getState().status).toBe('too_large');
     expect(useAppStore.getState().targets).toHaveLength(1);
   });
 });
@@ -540,5 +540,26 @@ describe('a response that arrives after a reset', () => {
     expect(useAppStore.getState().targets).toEqual([]);
     expect(useAppStore.getState().sync.baseServerUpdatedAt).toBeNull();
     expect(useSyncStatus.getState().status).toBe('idle');
+  });
+});
+
+describe('permanent sync errors say what would fix them', () => {
+  it('a server that refuses our schema version asks for an update, and does not retry', async () => {
+    const calls: string[] = [];
+    configureSync({
+      isLinked: () => true,
+      request: async (method) => {
+        calls.push(method);
+        throw new ApiError('invalid_response', 'newer', 'SYNC_SCHEMA_UNSUPPORTED');
+      },
+    });
+    addTarget();
+
+    await syncNow({ pull: false });
+    await flush(BACKOFF_MS[4] * 2);
+
+    expect(useSyncStatus.getState().status).toBe('update_required');
+    expect(calls).toHaveLength(1);
+    expect(useAppStore.getState().targets).toHaveLength(1);
   });
 });

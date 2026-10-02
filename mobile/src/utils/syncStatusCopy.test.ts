@@ -28,4 +28,17 @@ describe('syncStatusCopy', () => {
     expect(syncStatusCopy('error', true, null, NOW).subtitle).toContain('safe');
     expect(syncStatusCopy('offline', true, null, NOW).subtitle).toContain('saved here');
   });
+
+  it('tells the user to update the app for data from a newer version', () => {
+    const copy = syncStatusCopy('update_required', true, null, NOW);
+    expect(copy.title).toBe('Update Maven to keep syncing');
+    expect(copy.subtitle).toContain('Update the app');
+    expect(copy.subtitle).toContain('safe');
+  });
+
+  it('tells the user what to delete when the data is over the limits', () => {
+    const copy = syncStatusCopy('too_large', true, null, NOW);
+    expect(copy.title).toBe('Too much data to sync');
+    expect(copy.subtitle).toContain('Delete');
+  });
 });

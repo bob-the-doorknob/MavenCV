@@ -22,8 +22,13 @@ import { isLinkedAccount } from './syncAccount';
  *   server only once the undo window has closed uncancelled.
  */
 
-/** 'clock_skew': the server refused our timestamps — the device date is wrong. */
-export type SyncStatus = 'idle' | 'syncing' | 'offline' | 'error' | 'clock_skew';
+/**
+ * - 'clock_skew': the server refused our timestamps — the device date is wrong.
+ * - 'update_required': the account's data is from a newer app version. Permanent until the app is updated.
+ * - 'too_large': the data is over the sync limits. Permanent until something is deleted.
+ * - 'error': anything else we cannot recover from by waiting.
+ */
+export type SyncStatus = 'idle' | 'syncing' | 'offline' | 'error' | 'clock_skew' | 'update_required' | 'too_large';
 
 export const useSyncStatus = create<{ status: SyncStatus; lastSyncedAt: string | null }>(() => ({
   status: 'idle',
@@ -89,7 +94,7 @@ const parseSnapshot = (value: unknown): RemoteSnapshot => {
   }
   // A newer app wrote this. Merging it could drop fields this build does not
   // know, so stop and keep everything local as it is.
-  if (value.schemaVersion > SYNC_SCHEMA_VERSION) throw new StopSync('error');
+  if (value.schemaVersion > SYNC_SCHEMA_VERSION) throw new StopSync('update_required');
   const records = parseIncomingRecords(value.targets, value.cvEntries);
   if (!records) throw new ApiError('invalid_response', 'Sync snapshot held an invalid record.');
   return { records, serverUpdatedAt: value.serverUpdatedAt };
@@ -156,6 +161,15 @@ const handleError = (error: unknown, pull: boolean): void => {
   if (error.code === 'SYNC_CLOCK_SKEW') {
     blockedUntilForeground = true;
     setStatus('clock_skew');
+    return;
+  }
+  // Permanent: waiting changes nothing, so no retry — and each says what would.
+  if (error.code === 'SYNC_SCHEMA_UNSUPPORTED') {
+    setStatus('update_required');
+    return;
+  }
+  if (error.code === 'SYNC_PAYLOAD_TOO_LARGE') {
+    setStatus('too_large');
     return;
   }
   if (error.code === 'SYNC_ACCOUNT_REQUIRED' || error.kind === 'invalid_response' || error.kind === 'consent_required') {

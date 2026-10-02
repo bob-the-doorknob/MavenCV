@@ -21,7 +21,7 @@ it('sends a real mobile request accepted by the actual backend normalizer', asyn
   let received: unknown;
   vi.stubGlobal('fetch', async (_url: string, init: RequestInit) => {
     received = normalizeRoadmapInput(JSON.parse(String(init.body)));
-    return { ok: true, json: async () => ({ tasks: [] }) };
+    return { ok: true, json: async () => ({ tasks: [{ id: 't1', title: 'Build 1 API' }] }) };
   });
   await generateRoadmap({ roleId: 'software-engineer', level: 'entry-level', experience: 'Built APIs.\nUsed SQL.' });
   expect(received).toMatchObject({ level: 'entry-level', experience: 'Built APIs.\nUsed SQL.' });

@@ -39,6 +39,18 @@ export const syncStatusCopy = (
       return { title: 'Syncing', subtitle: syncedAgo(lastSyncedAt, now) };
     case 'offline':
       return { title: 'Offline', subtitle: 'Changes are saved here and sync when you are back online.' };
+    case 'update_required':
+      return {
+        title: 'Update Maven to keep syncing',
+        subtitle:
+          "Your account's data was saved by a newer version of Maven. Update the app, then it will sync again. Everything on this phone is safe.",
+      };
+    case 'too_large':
+      return {
+        title: 'Too much data to sync',
+        subtitle:
+          "Your data is over what Maven can keep in sync. Delete milestones, bullets or targets you no longer need. Everything on this phone is safe.",
+      };
     case 'error':
       return { title: 'Sync paused', subtitle: 'Something went wrong. Your data on this device is safe. Tap to retry.' };
     case 'clock_skew':

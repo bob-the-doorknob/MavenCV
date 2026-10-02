@@ -30,7 +30,7 @@ vi.mock('./api', async (importOriginal) => {
 import type { RoadmapTask } from '../types';
 import { useAppStore } from '../store/useAppStore';
 import { ApiError, generateCvBullet } from './api';
-import { processPendingCvEntries, repairLegacyMockCvEntries, retryCvEntry, setCvQueueActive } from './cvQueue';
+import { processPendingCvEntries, repairLegacyMockCvEntries, retryCvEntry, setCvQueueActive, useCvQueueStatus } from './cvQueue';
 
 const mockedGenerateCvBullet = vi.mocked(generateCvBullet);
 
@@ -176,6 +176,16 @@ describe('processPendingCvEntries', () => {
 
     const [entry] = useAppStore.getState().cvEntries;
     expect(entry?.status).toBe('failed');
+  });
+
+  it('marks the entry failed and says what to edit when the backend refuses the text', async () => {
+    seedPendingEntries(1);
+    mockedGenerateCvBullet.mockRejectedValueOnce(new ApiError('invalid_input', 'refused'));
+
+    await processPendingCvEntries();
+
+    expect(useAppStore.getState().cvEntries[0]?.status).toBe('failed');
+    expect(useCvQueueStatus.getState().message).toContain('edit its notes');
   });
 
   it('processes entries one at a time, in order', async () => {

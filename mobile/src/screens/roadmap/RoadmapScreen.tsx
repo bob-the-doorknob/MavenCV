@@ -32,6 +32,7 @@ import { processPendingCvEntries } from '../../services/cvQueue';
 import { headerColors, minTouchTarget, radii, spacing, typography, type Theme } from '../../theme/tokens';
 import { useTheme } from '../../theme/useTheme';
 import { countSteps, orderRoadmap, sortMilestones, taskMetaLine } from '../../utils/groupTasks';
+import { atLimit, limitMessage } from '../../utils/limits';
 import { categoryKeyForRole } from '../../utils/roleCategory';
 import { fits, overdueSummary, scheduleLabel } from '../../utils/schedule';
 import type { PaywallTrigger } from '../../utils/paywallCopy';
@@ -83,6 +84,10 @@ export function RoadmapScreen() {
 
   const addTarget = async (): Promise<void> => {
     if (addingTarget) return;
+    if (atLimit('targets', useAppStore.getState().targets.length)) {
+      Alert.alert("Can't add another target", limitMessage('targets'));
+      return;
+    }
     setAddingTarget(true);
     try {
       // The first target is free; a second one is the Pro moment.

@@ -4,8 +4,10 @@ import * as Haptics from 'expo-haptics';
 
 import { Button, Sheet, TextArea } from '../../components/ui';
 import { completeTaskAndQueue } from '../../services/tasks';
+import { useAppStore } from '../../store/useAppStore';
 import { spacing, typography, type Theme } from '../../theme/tokens';
 import { useTheme } from '../../theme/useTheme';
+import { atLimit, limitMessage } from '../../utils/limits';
 
 const MAX_NOTES_LENGTH = 400;
 
@@ -21,6 +23,8 @@ export function MarkDoneSheet({ visible, onClose, taskId, onCompleted }: MarkDon
   const theme = useTheme();
   const styles = useMemo(() => createStyles(theme), [theme]);
   const [notes, setNotes] = useState('');
+  // Finishing a milestone writes a CV bullet, so a full vault blocks it — with a reason.
+  const full = useAppStore((state) => atLimit('cvEntries', state.cvEntries.length));
 
   useEffect(() => {
     if (visible) {
@@ -29,7 +33,7 @@ export function MarkDoneSheet({ visible, onClose, taskId, onCompleted }: MarkDon
   }, [visible]);
 
   const save = (): void => {
-    if (!notes.trim()) return;
+    if (full || !notes.trim()) return;
     // Synchronous local completion; the CV screen generates the bullet later.
     completeTaskAndQueue(taskId, notes.trim());
     void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -52,7 +56,8 @@ export function MarkDoneSheet({ visible, onClose, taskId, onCompleted }: MarkDon
         it&apos;
       </Text>
       <Text style={styles.hint}>Add evidence of what you completed. Your CV bullet will generate when you open CV.</Text>
-      <Button disabled={!notes.trim()} label="Mark as done" onPress={save} />
+      {full ? <Text style={styles.hint}>{limitMessage('cvEntries')}</Text> : null}
+      <Button disabled={full || !notes.trim()} label="Mark as done" onPress={save} />
     </Sheet>
   );
 }
