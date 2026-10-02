@@ -39,7 +39,39 @@ import {
 import { createId } from '../utils/id';
 import { calculateReadiness } from '../utils/readiness';
 
-export const STORE_VERSION = 1;
+/**
+ * The persisted-data version. 2 = the sync release (updatedAt on targets and
+ * CV entries, tombstones, sync bookkeeping). Bumping it is what makes a
+ * pre-migration copy get written. Older builds cannot read a newer version.
+ */
+export const STORE_VERSION = 2;
+
+/**
+ * One step per version: MIGRATIONS[n] turns version n into n + 1. Steps only
+ * restructure; filling defaults and validating stay in `migrate()` below,
+ * which runs on every load through `merge`. To add 2 -> 3, add MIGRATIONS[2]
+ * and bump STORE_VERSION.
+ */
+const MIGRATIONS: Readonly<Record<number, (state: unknown) => unknown>> = {
+  // 1 -> 2: the new sync fields are all filled in by load-time normalisation.
+  1: (state) => state,
+};
+
+/** zustand's `migrate`. Exported for tests. */
+export const migrateStoredState = (state: unknown, fromVersion: number): unknown => {
+  if (fromVersion > STORE_VERSION) {
+    // Written by a newer build. Refuse rather than misread it; the load
+    // fails and nothing is written, so the data stays as it was.
+    throw new Error(`Saved data is from a newer version of Maven (${fromVersion}).`);
+  }
+  let current = state;
+  for (let version = fromVersion; version < STORE_VERSION; version += 1) {
+    const step = MIGRATIONS[version];
+    if (!step) throw new Error(`No migration from saved data version ${version}.`);
+    current = step(current);
+  }
+  return current;
+};
 
 /** Where the app's data lives in AsyncStorage. */
 export const STORAGE_KEY = 'trajectory-app-state';
@@ -87,8 +119,26 @@ export const savePreMigrationCopy = async (raw: string, currentVersion: number =
   if (version === null || version >= currentVersion) return;
   const key = `${PRE_MIGRATION_KEY_PREFIX}${version}`;
   if ((await AsyncStorage.getItem(key)) !== null) return;
-  await AsyncStorage.setItem(key, raw);
+  try {
+    await AsyncStorage.setItem(key, raw);
+  } catch {
+    throw new PreMigrationCopyFailed();
+  }
 };
+
+/** The safety copy could not be written, so the load stopped before migrating. Most likely a full disk. */
+export class PreMigrationCopyFailed extends Error {
+  public constructor() {
+    super('Could not write the pre-migration copy');
+    this.name = 'PreMigrationCopyFailed';
+  }
+}
+
+/** The splash text for a failed load. Exported for tests. */
+export const loadErrorMessage = (error: unknown): string =>
+  error instanceof PreMigrationCopyFailed
+    ? "Your data couldn't be updated because this phone's storage may be full. Nothing has been changed. Free up some space, then retry."
+    : 'Saved data could not be loaded. Your original data is preserved. Retry or contact support; do not reinstall the app.';
 
 /**
  * Exported for tests. One write per save — the data and its "needs pushing"
@@ -1197,20 +1247,22 @@ export const useAppStore = create<AppState>()(
     {
       name: STORAGE_KEY,
       version: STORE_VERSION,
+      migrate: migrateStoredState,
       storage: createJSONStorage(() => ({
         ...AsyncStorage,
         setItem: writeState,
         getItem: async (name: string) => {
           const saved = await AsyncStorage.getItem(name);
-          // Before migrate runs, and only for an older version.
-          if (saved !== null) await savePreMigrationCopy(saved).catch(() => {});
+          // Before migrate runs, and only for an older version. If the copy
+          // cannot be written the load fails on purpose: migrating would write
+          // the new shape back over the only copy of the old data.
+          if (saved !== null) await savePreMigrationCopy(saved);
           return saved;
         },
       })),
       onRehydrateStorage: () => {
         useStorageStatus.setState({ ready: false, error: null, writeFailed: false });
-        return (_state, error) => useStorageStatus.setState({ ready: !error,
-          error: error ? 'Saved data could not be loaded. Your original data is preserved. Retry or contact support; do not reinstall the app.' : null });
+        return (_state, error) => useStorageStatus.setState({ ready: !error, error: error ? loadErrorMessage(error) : null });
       },
       // Runs on every rehydration (not just version bumps), so a same-version
       // but corrupted or pre-redesign payload still resets safely.

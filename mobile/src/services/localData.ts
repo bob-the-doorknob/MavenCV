@@ -28,6 +28,7 @@ export const deleteLocalCopies = async (): Promise<void> => {
   await Promise.all(localCopyKeys().map((key) => AsyncStorage.removeItem(key)));
 };
 
+
 /** "Reset all data", and the local half of sign-out and account deletion. */
 export const resetThisDevice = async (): Promise<void> => {
   useAppStore.getState().resetAll();
@@ -51,6 +52,9 @@ export const startFresh = async (): Promise<void> => {
     }
   }
   await AsyncStorage.removeItem(STORAGE_KEY);
+  // Every copy stays — the recovery copy just written, and any pre-migration
+  // copy, which may be the last readable version of the user's data. Only a
+  // deliberate wipe (Reset, Sign out and clear, Delete account) removes them.
   useAppStore.getState().resetAll();
   await useAppStore.persist.rehydrate();
 };
