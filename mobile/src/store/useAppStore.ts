@@ -62,12 +62,12 @@ export const migrateStoredState = (state: unknown, fromVersion: number): unknown
   if (fromVersion > STORE_VERSION) {
     // Written by a newer build. Refuse rather than misread it; the load
     // fails and nothing is written, so the data stays as it was.
-    throw new Error(`Saved data is from a newer version of Maven (${fromVersion}).`);
+    throw new UnreadableSavedData(`Saved data is from a newer version of Maven (${fromVersion}).`);
   }
   let current = state;
   for (let version = fromVersion; version < STORE_VERSION; version += 1) {
     const step = MIGRATIONS[version];
-    if (!step) throw new Error(`No migration from saved data version ${version}.`);
+    if (!step) throw new UnreadableSavedData(`No migration from saved data version ${version}.`);
     current = step(current);
   }
   return current;
@@ -90,9 +90,22 @@ export const RECOVERY_KEY = `${STORAGE_KEY}-recovery`;
 export const LEGACY_BACKUP_KEY = `${STORAGE_KEY}-pre-migration-backup`;
 
 // Separate from persisted state: reporting a read or write failure must never write over it.
-export const useStorageStatus = create<{ ready: boolean; error: string | null; writeFailed: boolean }>(() => ({
+export const useStorageStatus = create<{
+  ready: boolean;
+  error: string | null;
+  /** Why the load failed, so the screen can lead with the right action. Null when there is no failure. */
+  loadFailure: LoadFailure | null;
+  /** A retry is re-reading the saved data right now. */
+  checking: boolean;
+  /** A retry just finished and the data still could not be read. */
+  retried: boolean;
+  writeFailed: boolean;
+}>(() => ({
   ready: false,
   error: null,
+  loadFailure: null,
+  checking: false,
+  retried: false,
   writeFailed: false,
 }));
 
@@ -134,11 +147,49 @@ export class PreMigrationCopyFailed extends Error {
   }
 }
 
-/** The splash text for a failed load. Exported for tests. */
-export const loadErrorMessage = (error: unknown): string =>
-  error instanceof PreMigrationCopyFailed
-    ? "Your data couldn't be updated because this phone's storage may be full. Nothing has been changed. Free up some space, then retry."
-    : 'Saved data could not be loaded. Your original data is preserved. Retry or contact support; do not reinstall the app.';
+/**
+ * The saved data is there but this build cannot read it: the shape is wrong, or
+ * it comes from a newer version. Reading it again changes nothing.
+ */
+export class UnreadableSavedData extends Error {
+  public constructor(message: string) {
+    super(message);
+    this.name = 'UnreadableSavedData';
+  }
+}
+
+/**
+ * - 'permanent': invalid JSON, or a shape or version this build cannot read. Retry cannot help.
+ * - 'storage_full': the safety copy could not be written. Retry helps once space is freed.
+ * - 'transient': anything else, such as a storage read that failed. Retry may help.
+ */
+export type LoadFailure = 'permanent' | 'storage_full' | 'transient';
+
+export const classifyLoadFailure = (error: unknown): LoadFailure => {
+  if (error instanceof PreMigrationCopyFailed) return 'storage_full';
+  // SyntaxError: the stored text is not JSON. Anything else unknown is treated
+  // as transient — offering Retry first is harmless, because Retry never writes.
+  if (error instanceof UnreadableSavedData || error instanceof SyntaxError) return 'permanent';
+  return 'transient';
+};
+
+/**
+ * The splash text for a failed load. It only claims what the code guarantees:
+ * a failed load never writes to the saved data (tests prove the stored bytes
+ * are unchanged), so "nothing has been changed or deleted" holds. It does NOT
+ * promise a backup copy: one exists only when older-version data was readable
+ * before the failure, never for invalid JSON. Exported for tests.
+ */
+export const loadErrorMessage = (error: unknown): string => {
+  switch (classifyLoadFailure(error)) {
+    case 'storage_full':
+      return "Your data couldn't be updated because this phone's storage may be full. Nothing has been changed. Free up some space, then retry.";
+    case 'permanent':
+      return "Maven can't read the saved data on this phone. Nothing has been changed or deleted — it is still on this phone. Export a copy before starting fresh.";
+    case 'transient':
+      return "Maven couldn't read your saved data just now. Nothing has been changed or deleted. Try again.";
+  }
+};
 
 /**
  * Exported for tests. One write per save — the data and its "needs pushing"
@@ -419,7 +470,7 @@ export const migrate = (persistedState: unknown): PersistedAppState => {
   const check = checkPersistedAppState(persistedState);
   if (!check.ok) {
     console.warn(`Maven: preserving unreadable persisted app state — ${check.reason}.`);
-    throw new Error('Saved data could not be loaded. It has not been deleted.');
+    throw new UnreadableSavedData('Saved data could not be loaded. It has not been deleted.');
   }
   const persisted = persistedState as PersistedShape;
   const targets = persisted.targets.map(normalizeTarget);
@@ -1283,8 +1334,15 @@ export const useAppStore = create<AppState>()(
         },
       })),
       onRehydrateStorage: () => {
-        useStorageStatus.setState({ ready: false, error: null, writeFailed: false });
-        return (_state, error) => useStorageStatus.setState({ ready: !error, error: error ? loadErrorMessage(error) : null });
+        // An earlier failure stays on screen while a retry reads again, so the
+        // screen does not flip to "Loading" and lose its buttons mid-retry.
+        useStorageStatus.setState({ ready: false, writeFailed: false });
+        return (_state, error) =>
+          useStorageStatus.setState({
+            ready: !error,
+            error: error ? loadErrorMessage(error) : null,
+            loadFailure: error ? classifyLoadFailure(error) : null,
+          });
       },
       // Runs on every rehydration (not just version bumps), so a same-version
       // but corrupted or pre-redesign payload still resets safely.

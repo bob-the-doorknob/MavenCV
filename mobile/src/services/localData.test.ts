@@ -202,7 +202,8 @@ describe('the dev "Corrupt saved data" tool', () => {
     await useAppStore.persist.rehydrate();
     await new Promise((resolve) => setTimeout(resolve, 0));
 
-    expect(useStorageStatus.getState().error).toContain('could not be loaded');
+    expect(useStorageStatus.getState().error).toContain("can't read the saved data");
+    expect(useStorageStatus.getState().loadFailure).toBe('permanent');
     expect([...disk.map.keys()].some((key) => key.startsWith(PRE_MIGRATION_KEY_PREFIX))).toBe(false);
   });
 });

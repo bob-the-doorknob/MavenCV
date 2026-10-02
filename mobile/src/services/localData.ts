@@ -7,6 +7,7 @@ import {
   STORAGE_KEY,
   STORE_VERSION,
   useAppStore,
+  useStorageStatus,
 } from '../store/useAppStore';
 
 /**
@@ -57,6 +58,24 @@ export const startFresh = async (): Promise<void> => {
   // deliberate wipe (Reset, Sign out and clear, Delete account) removes them.
   useAppStore.getState().resetAll();
   await useAppStore.persist.rehydrate();
+};
+
+/** Long enough to see "Checking…" — a read that fails in a few ms would otherwise look like nothing happened. */
+export const MIN_CHECK_MS = 600;
+
+/**
+ * Retry on the could-not-load screen. Never writes: it only reads the saved
+ * data again. While it runs `checking` is true; if the data still cannot be
+ * read, `retried` is true afterwards so the screen can say the retry ran.
+ */
+export const retryLoadingSavedData = async ({ minMs = MIN_CHECK_MS }: { minMs?: number } = {}): Promise<void> => {
+  if (useStorageStatus.getState().checking) return;
+  useStorageStatus.setState({ checking: true, retried: false });
+  try {
+    await Promise.all([useAppStore.persist.rehydrate(), new Promise((resolve) => setTimeout(resolve, minMs))]);
+  } finally {
+    useStorageStatus.setState({ checking: false, retried: useStorageStatus.getState().error !== null });
+  }
 };
 
 /** Development builds only. Release builds never show the corruption row and never run it. */

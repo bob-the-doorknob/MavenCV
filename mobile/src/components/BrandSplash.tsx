@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
-import { Image, StyleSheet, Text, View } from 'react-native';
+import { Image, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { radii, spacing, typography, type Theme } from '../theme/tokens';
 import { useTheme } from '../theme/useTheme';
@@ -8,6 +9,12 @@ interface BrandSplashProps {
   /** Shown under the wordmark — a loading line, or a load failure. */
   message?: string;
   isError?: boolean;
+  /**
+   * Lets the content scroll instead of overflowing. For the failure screen,
+   * which carries several buttons and notes: at the largest system text size,
+   * or in Display Zoom, they would not fit the screen and would clip.
+   */
+  scrollable?: boolean;
   children?: React.ReactNode;
 }
 
@@ -17,15 +24,19 @@ interface BrandSplashProps {
  * for the storage-failure state, which needs a button the native splash
  * cannot show.
  */
-export function BrandSplash({ message, isError = false, children }: BrandSplashProps) {
+export function BrandSplash({ message, isError = false, scrollable = false, children }: BrandSplashProps) {
   const theme = useTheme();
+  const insets = useSafeAreaInsets();
   const styles = useMemo(() => createStyles(theme), [theme]);
 
-  return (
-    <View style={styles.screen}>
+  const content = (
+    <>
       <View style={styles.brand}>
         <Image accessibilityIgnoresInvertColors source={require('../../assets/maven-mark.png')} style={styles.mark} />
-        <Text style={styles.wordmark}>Maven</Text>
+        {/* The wordmark is the logo, not reading text: capped so it cannot crowd out the message. */}
+        <Text maxFontSizeMultiplier={1.2} style={styles.wordmark}>
+          Maven
+        </Text>
       </View>
       {message ? (
         <Text
@@ -36,7 +47,23 @@ export function BrandSplash({ message, isError = false, children }: BrandSplashP
         </Text>
       ) : null}
       {children}
-    </View>
+    </>
+  );
+
+  if (!scrollable) {
+    return <View style={styles.screen}>{content}</View>;
+  }
+
+  return (
+    <ScrollView
+      contentContainerStyle={[
+        styles.scrollContent,
+        { paddingBottom: insets.bottom + spacing.xl, paddingTop: insets.top + spacing.xl },
+      ]}
+      style={styles.scroll}
+    >
+      {content}
+    </ScrollView>
   );
 }
 
@@ -46,6 +73,18 @@ const createStyles = (theme: Theme) =>
       alignItems: 'center',
       backgroundColor: theme.colors.background,
       flex: 1,
+      gap: spacing.lg,
+      justifyContent: 'center',
+      paddingHorizontal: spacing.xl,
+    },
+    scroll: {
+      backgroundColor: theme.colors.background,
+      flex: 1,
+    },
+    // flexGrow keeps the content centred when it is short, and lets it run past the screen — and scroll — when it is not.
+    scrollContent: {
+      alignItems: 'center',
+      flexGrow: 1,
       gap: spacing.lg,
       justifyContent: 'center',
       paddingHorizontal: spacing.xl,

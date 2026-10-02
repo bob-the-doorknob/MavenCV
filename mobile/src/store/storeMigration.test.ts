@@ -15,7 +15,8 @@ vi.mock('@react-native-async-storage/async-storage', () => ({
   },
 }));
 
-import { RECOVERY_KEY, STORAGE_KEY, STORE_VERSION, loadErrorMessage, migrateStoredState, useAppStore, useStorageStatus } from './useAppStore';
+import { PreMigrationCopyFailed, RECOVERY_KEY, STORAGE_KEY, STORE_VERSION, UnreadableSavedData, classifyLoadFailure, loadErrorMessage, migrateStoredState, useAppStore, useStorageStatus } from './useAppStore';
+import { retryLoadingSavedData } from '../services/localData';
 import { deleteLocalCopies, localCopyKeys, resetThisDevice, startFresh } from '../services/localData';
 import { stripForPush, toRecords } from '../utils/syncMerge';
 
@@ -130,14 +131,15 @@ describe('the copy survives failures', () => {
     expect(disk.map.get(STORAGE_KEY)).toBe(V1_RAW);
   });
 
-  it('keeps the generic message for a load that fails for another reason', async () => {
+  it('says the data cannot be read, not that storage is full, for a load that fails for another reason', async () => {
     disk.map.set(STORAGE_KEY, '{"state":{"targets":"not a list","activeTargetId":null,"cvEntries":[]},"version":2}');
     vi.spyOn(console, 'warn').mockImplementation(() => {});
 
     await launch();
 
-    expect(useStorageStatus.getState().error).toBe(loadErrorMessage(new Error('anything else')));
-    expect(useStorageStatus.getState().error).not.toContain('storage may be full');
+    const message = useStorageStatus.getState().error ?? '';
+    expect(message).toBe(loadErrorMessage(new UnreadableSavedData('x')));
+    expect(message).not.toContain('storage may be full');
   });
 
   it('refuses data from a newer version rather than misreading it', () => {
@@ -193,5 +195,115 @@ describe('data saved before versioning', () => {
     expect(disk.map.get(V0_COPY)).toBe(unversioned);
     expect(useStorageStatus.getState()).toMatchObject({ ready: true, error: null });
     expect(useAppStore.getState().targets[0]).toMatchObject({ id: 't1', updatedAt: '2026-05-01T08:00:00.000Z' });
+  });
+});
+
+describe('transient or permanent', () => {
+  it('classifies each cause', () => {
+    expect(classifyLoadFailure(new SyntaxError('Unexpected token'))).toBe('permanent');
+    expect(classifyLoadFailure(new UnreadableSavedData('bad shape'))).toBe('permanent');
+    expect(classifyLoadFailure(new PreMigrationCopyFailed())).toBe('storage_full');
+    expect(classifyLoadFailure(new Error('native read failed'))).toBe('transient');
+    expect(classifyLoadFailure('a string')).toBe('transient');
+  });
+
+  it('invalid JSON on disk is permanent', async () => {
+    disk.map.set(STORAGE_KEY, '{"state": broken');
+    await launch();
+    expect(useStorageStatus.getState().loadFailure).toBe('permanent');
+  });
+
+  it('a shape this build cannot read, or a newer version, is permanent', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    disk.map.set(STORAGE_KEY, '{"state":{"targets":"nope","activeTargetId":null,"cvEntries":[]},"version":2}');
+    await launch();
+    expect(useStorageStatus.getState().loadFailure).toBe('permanent');
+    expect(() => migrateStoredState({}, STORE_VERSION + 1)).toThrow(UnreadableSavedData);
+  });
+
+  it('a full disk is its own cause, and keeps its own wording', async () => {
+    disk.map.set(STORAGE_KEY, V1_RAW);
+    disk.failKey = V1_COPY;
+    await launch();
+    expect(useStorageStatus.getState().loadFailure).toBe('storage_full');
+    expect(useStorageStatus.getState().error).toContain('storage may be full');
+  });
+
+  it('no wording promises a backup copy, which does not exist for invalid JSON', async () => {
+    disk.map.set(STORAGE_KEY, '{"state": broken');
+    await launch();
+    expect([...disk.map.keys()].some((key) => key.includes('pre-migration'))).toBe(false);
+    for (const cause of [new SyntaxError('x'), new UnreadableSavedData('x'), new PreMigrationCopyFailed(), new Error('x')]) {
+      expect(loadErrorMessage(cause)).not.toMatch(/backup/i);
+    }
+    // What it does promise is true: the stored bytes are still there, unchanged.
+    expect(disk.map.get(STORAGE_KEY)).toBe('{"state": broken');
+  });
+});
+
+describe('retrying on the could-not-load screen', () => {
+  it('shows Checking… while it re-reads, keeps the failure on screen, and says so when it fails again', async () => {
+    disk.map.set(STORAGE_KEY, '{"state": broken');
+    await launch();
+    const before = disk.map.get(STORAGE_KEY);
+    expect(useStorageStatus.getState()).toMatchObject({ checking: false, retried: false });
+
+    const retrying = retryLoadingSavedData({ minMs: 30 });
+    // Immediately: the button can already show Checking…, and the error screen is still up.
+    expect(useStorageStatus.getState()).toMatchObject({ checking: true, retried: false });
+    expect(useStorageStatus.getState().error).not.toBeNull();
+
+    await retrying;
+
+    expect(useStorageStatus.getState()).toMatchObject({ checking: false, retried: true });
+    expect(useStorageStatus.getState().error).not.toBeNull();
+    // Retry only reads.
+    expect(disk.map.get(STORAGE_KEY)).toBe(before);
+  });
+
+  it('clears the "still can\'t read" state at the start of the next retry, so a repeat visibly runs', async () => {
+    disk.map.set(STORAGE_KEY, '{"state": broken');
+    await launch();
+    await retryLoadingSavedData({ minMs: 0 });
+    expect(useStorageStatus.getState().retried).toBe(true);
+
+    const again = retryLoadingSavedData({ minMs: 30 });
+    expect(useStorageStatus.getState()).toMatchObject({ checking: true, retried: false });
+    await again;
+    expect(useStorageStatus.getState().retried).toBe(true);
+  });
+
+  it('recovers when the cause has passed, and shows no failure afterwards', async () => {
+    disk.map.set(STORAGE_KEY, V1_RAW);
+    disk.failKey = V1_COPY;
+    await launch();
+    expect(useStorageStatus.getState().loadFailure).toBe('storage_full');
+
+    disk.failKey = null; // space was freed
+    await retryLoadingSavedData({ minMs: 0 });
+
+    expect(useStorageStatus.getState()).toMatchObject({ ready: true, error: null, loadFailure: null, checking: false, retried: false });
+    expect(useAppStore.getState().targets[0]).toMatchObject({ id: 't1' });
+  });
+
+  it('ignores a second tap while one is running', async () => {
+    disk.map.set(STORAGE_KEY, '{"state": broken');
+    await launch();
+    const writesBefore = disk.writes.length;
+    const first = retryLoadingSavedData({ minMs: 30 });
+    const second = retryLoadingSavedData({ minMs: 30 });
+    await Promise.all([first, second]);
+    expect(disk.writes.length).toBe(writesBefore);
+    expect(useStorageStatus.getState().checking).toBe(false);
+  });
+
+  it('never touches the recovery or pre-migration copies', async () => {
+    disk.map.set(STORAGE_KEY, '{"state": broken');
+    disk.map.set(RECOVERY_KEY, 'recovery bytes');
+    disk.map.set(V1_COPY, 'v1 bytes');
+    await launch();
+    await retryLoadingSavedData({ minMs: 0 });
+    expect(disk.map.get(RECOVERY_KEY)).toBe('recovery bytes');
+    expect(disk.map.get(V1_COPY)).toBe('v1 bytes');
   });
 });
