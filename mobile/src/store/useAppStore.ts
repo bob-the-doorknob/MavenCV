@@ -6,28 +6,230 @@ import { useShallow } from 'zustand/react/shallow';
 import type { Level } from '../data/roles';
 import type {
   CvEntry,
+  CvEntryTombstone,
   OnboardingDraft,
   CvEntryStatus,
   MilestoneSort,
   RoadmapTask,
   SchedulePace,
   Target,
+  TargetTombstone,
   TaskPriority,
   TaskStatus,
   TaskStep,
+  Tombstones,
 } from '../types';
 import { buildSchedule, clampEstimatedWeeks } from '../utils/schedule';
+import { bumpEpoch } from './accountEpoch';
+import {
+  canonicalJson,
+  chooseActiveTargetId,
+  clampFutureStamps,
+  fromRecords,
+  isTombstone as isTombstoneRecord,
+  mergeSnapshots,
+  monotonicStamp,
+  recordsEqual,
+  restoreDeviceLocalFields,
+  stripForPush,
+  stripIncoming,
+  toRecords,
+  type SyncRecords,
+} from '../utils/syncMerge';
 import { createId } from '../utils/id';
 import { calculateReadiness } from '../utils/readiness';
 
-const STORE_VERSION = 1;
-// Separate from persisted state: reporting a read failure must never write over it.
-export const useStorageStatus = create<{ ready: boolean; error: string | null }>(() => ({ ready: false, error: null }));
+/**
+ * The persisted-data version. 2 = the sync release (updatedAt on targets and
+ * CV entries, tombstones, sync bookkeeping). Bumping it is what makes a
+ * pre-migration copy get written. Older builds cannot read a newer version.
+ */
+export const STORE_VERSION = 2;
+
+/**
+ * One step per version: MIGRATIONS[n] turns version n into n + 1. Steps only
+ * restructure; filling defaults and validating stay in `migrate()` below,
+ * which runs on every load through `merge`. To add 2 -> 3, add MIGRATIONS[2]
+ * and bump STORE_VERSION.
+ */
+const MIGRATIONS: Readonly<Record<number, (state: unknown) => unknown>> = {
+  // 1 -> 2: the new sync fields are all filled in by load-time normalisation.
+  1: (state) => state,
+};
+
+/** zustand's `migrate`. Exported for tests. */
+export const migrateStoredState = (state: unknown, fromVersion: number): unknown => {
+  if (fromVersion > STORE_VERSION) {
+    // Written by a newer build. Refuse rather than misread it; the load
+    // fails and nothing is written, so the data stays as it was.
+    throw new UnreadableSavedData(`Saved data is from a newer version of Maven (${fromVersion}).`);
+  }
+  let current = state;
+  for (let version = fromVersion; version < STORE_VERSION; version += 1) {
+    const step = MIGRATIONS[version];
+    if (!step) throw new UnreadableSavedData(`No migration from saved data version ${version}.`);
+    current = step(current);
+  }
+  return current;
+};
+
+/** Where the app's data lives in AsyncStorage. */
+export const STORAGE_KEY = 'trajectory-app-state';
+/**
+ * A copy of the raw saved data, written once, before a migration, when the
+ * stored version is older than this build's. Keyed by the version it was
+ * taken from, so a later migration can never overwrite an earlier copy.
+ */
+export const PRE_MIGRATION_KEY_PREFIX = `${STORAGE_KEY}-pre-migration-v`;
+/** Where "Start fresh" puts unreadable data before clearing it. */
+export const RECOVERY_KEY = `${STORAGE_KEY}-recovery`;
+/**
+ * Older builds wrote this on every read and write, so it only ever mirrored
+ * the current data. Nothing reads it any more; wipes delete it.
+ */
+export const LEGACY_BACKUP_KEY = `${STORAGE_KEY}-pre-migration-backup`;
+
+// Separate from persisted state: reporting a read or write failure must never write over it.
+export const useStorageStatus = create<{
+  ready: boolean;
+  error: string | null;
+  /** Why the load failed, so the screen can lead with the right action. Null when there is no failure. */
+  loadFailure: LoadFailure | null;
+  /** A retry is re-reading the saved data right now. */
+  checking: boolean;
+  /** A retry just finished and the data still could not be read. */
+  retried: boolean;
+  writeFailed: boolean;
+}>(() => ({
+  ready: false,
+  error: null,
+  loadFailure: null,
+  checking: false,
+  retried: false,
+  writeFailed: false,
+}));
+
+/** The stored payload's version, or null when it cannot be read. */
+const storedVersion = (raw: string): number | null => {
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (typeof parsed !== 'object' || parsed === null) return null;
+    const version = (parsed as { version?: unknown }).version;
+    // A payload from before versioning counts as version 0: older than any build.
+    return typeof version === 'number' ? version : 0;
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * Exported for tests. Writes the pre-migration copy if — and only if — the
+ * stored version is older than this build's and no copy for that version
+ * exists yet. Never overwrites, so a failed migration cannot replace it.
+ */
+export const savePreMigrationCopy = async (raw: string, currentVersion: number = STORE_VERSION): Promise<void> => {
+  const version = storedVersion(raw);
+  if (version === null || version >= currentVersion) return;
+  const key = `${PRE_MIGRATION_KEY_PREFIX}${version}`;
+  if ((await AsyncStorage.getItem(key)) !== null) return;
+  try {
+    await AsyncStorage.setItem(key, raw);
+  } catch {
+    throw new PreMigrationCopyFailed();
+  }
+};
+
+/** The safety copy could not be written, so the load stopped before migrating. Most likely a full disk. */
+export class PreMigrationCopyFailed extends Error {
+  public constructor() {
+    super('Could not write the pre-migration copy');
+    this.name = 'PreMigrationCopyFailed';
+  }
+}
+
+/**
+ * The saved data is there but this build cannot read it: the shape is wrong, or
+ * it comes from a newer version. Reading it again changes nothing.
+ */
+export class UnreadableSavedData extends Error {
+  public constructor(message: string) {
+    super(message);
+    this.name = 'UnreadableSavedData';
+  }
+}
+
+/**
+ * - 'permanent': invalid JSON, or a shape or version this build cannot read. Retry cannot help.
+ * - 'storage_full': the safety copy could not be written. Retry helps once space is freed.
+ * - 'transient': anything else, such as a storage read that failed. Retry may help.
+ */
+export type LoadFailure = 'permanent' | 'storage_full' | 'transient';
+
+export const classifyLoadFailure = (error: unknown): LoadFailure => {
+  if (error instanceof PreMigrationCopyFailed) return 'storage_full';
+  // SyntaxError: the stored text is not JSON. Anything else unknown is treated
+  // as transient — offering Retry first is harmless, because Retry never writes.
+  if (error instanceof UnreadableSavedData || error instanceof SyntaxError) return 'permanent';
+  return 'transient';
+};
+
+/**
+ * The splash text for a failed load. It only claims what the code guarantees:
+ * a failed load never writes to the saved data (tests prove the stored bytes
+ * are unchanged), so "nothing has been changed or deleted" holds. It does NOT
+ * promise a backup copy: one exists only when older-version data was readable
+ * before the failure, never for invalid JSON. Exported for tests.
+ */
+export const loadErrorMessage = (error: unknown): string => {
+  switch (classifyLoadFailure(error)) {
+    case 'storage_full':
+      return "Your data couldn't be updated because this phone's storage may be full. Nothing has been changed. Free up some space, then retry.";
+    case 'permanent':
+      return "Maven can't read the saved data on this phone. Nothing has been changed or deleted — it is still on this phone. Export a copy before starting fresh.";
+    case 'transient':
+      return "Maven couldn't read your saved data just now. Nothing has been changed or deleted. Try again.";
+  }
+};
+
+/**
+ * Exported for tests. One write per save — the data and its "needs pushing"
+ * flag travel together. A failure is recorded for the UI instead of vanishing
+ * as an unhandled rejection, and cleared by the next successful write.
+ */
+export const writeState = async (name: string, value: string): Promise<void> => {
+  try {
+    await AsyncStorage.setItem(name, value);
+    if (useStorageStatus.getState().writeFailed) useStorageStatus.setState({ writeFailed: false });
+  } catch {
+    useStorageStatus.setState({ writeFailed: true });
+  }
+};
 
 /** At most this many tasks can be in focus at once. */
 export const MAX_FOCUS_TASKS = 2;
 
 const CHECK_IN_INTERVAL_MS = 7 * 24 * 60 * 60 * 1_000;
+
+/**
+ * Bookkeeping for cloud sync, persisted in the same write as the data it
+ * describes — so a force-quit can never leave a change on disk without the
+ * flag that says it still needs pushing.
+ */
+export interface SyncMeta {
+  /** True while this device holds changes the server may not have. */
+  dirty: boolean;
+  /** Bumped on every local change, so a push can tell if more arrived mid-flight. */
+  revision: number;
+  /** The server's version this device last agreed with. Opaque; compared by equality. */
+  baseServerUpdatedAt: string | null;
+  lastSyncedAt: string | null;
+  /**
+   * The account this device's data belongs to. Set when an account is linked
+   * or restored; cleared with the data. Sync only runs when it matches the
+   * linked account, so one account's data can never be pushed into another.
+   */
+  ownerUid: string | null;
+}
 
 export interface PersistedAppState {
   targets: Target[];
@@ -35,13 +237,26 @@ export interface PersistedAppState {
   cvEntries: CvEntry[];
   /** Null unless the user is part-way through onboarding. */
   onboardingDraft: OnboardingDraft | null;
+  /** Deletes waiting to reach (or already on) the server. See docs/sync-contract.md §7. */
+  tombstones: Tombstones;
+  sync: SyncMeta;
 }
+
+export const emptySyncMeta: SyncMeta = {
+  dirty: false,
+  revision: 0,
+  baseServerUpdatedAt: null,
+  lastSyncedAt: null,
+  ownerUid: null,
+};
 
 const emptyState: PersistedAppState = {
   targets: [],
   activeTargetId: null,
   cvEntries: [],
   onboardingDraft: null,
+  tombstones: { targets: [], cvEntries: [] },
+  sync: emptySyncMeta,
 };
 
 type ShapeCheck = { ok: true } | { ok: false; reason: string };
@@ -90,10 +305,13 @@ type PersistedRoadmapTask = Omit<RoadmapTask, 'steps' | 'estimatedWeeks'> & {
   steps?: TaskStep[];
   estimatedWeeks?: number;
 };
-type PersistedTarget = Omit<Target, 'roadmap' | 'focusTaskIds'> & {
+type PersistedTarget = Omit<Target, 'roadmap' | 'focusTaskIds' | 'updatedAt'> & {
   roadmap: PersistedRoadmapTask[];
   focusTaskIds?: string[];
+  /** Absent on anything saved before sync existed. */
+  updatedAt?: string;
 };
+type PersistedCvEntry = Omit<CvEntry, 'updatedAt'> & { updatedAt?: string };
 
 /**
  * Every check below only requires the fields the app actually reads
@@ -133,10 +351,11 @@ const isTarget = (value: unknown): value is PersistedTarget =>
   isOptional(value.schedulePace, isSchedulePace) &&
   isOptional(value.readyCelebratedAt, isString) &&
   isOptional(value.milestoneSort, isMilestoneSort) &&
+  isOptional(value.updatedAt, isString) &&
   Array.isArray(value.roadmap) &&
   value.roadmap.every(isRoadmapTask);
 
-const isCvEntry = (value: unknown): value is CvEntry =>
+const isCvEntry = (value: unknown): value is PersistedCvEntry =>
   isRecord(value) &&
   isString(value.id) &&
   isString(value.targetId) &&
@@ -144,13 +363,46 @@ const isCvEntry = (value: unknown): value is CvEntry =>
   isCvEntryStatus(value.status) &&
   isString(value.text) &&
   isOptional(value.suggestions, isStringArray) &&
-  isString(value.createdAt);
+  isString(value.createdAt) &&
+  isOptional(value.updatedAt, isString);
+
+const isTargetTombstone = (value: unknown): value is TargetTombstone =>
+  isRecord(value) && isString(value.id) && isString(value.updatedAt) && isString(value.deletedAt);
+
+const isCvEntryTombstone = (value: unknown): value is CvEntryTombstone =>
+  isRecord(value) && isTargetTombstone(value) && isString(value.targetId);
+
+/**
+ * Lenient on purpose: tombstones and sync bookkeeping are rebuildable, so a
+ * malformed one is dropped rather than failing the whole load and locking
+ * the user out of their roadmap.
+ */
+const normalizeTombstones = (value: unknown): Tombstones => {
+  if (!isRecord(value)) return { targets: [], cvEntries: [] };
+  return {
+    targets: Array.isArray(value.targets) ? value.targets.filter(isTargetTombstone) : [],
+    cvEntries: Array.isArray(value.cvEntries) ? value.cvEntries.filter(isCvEntryTombstone) : [],
+  };
+};
+
+const normalizeSyncMeta = (value: unknown): SyncMeta => {
+  if (!isRecord(value)) return emptySyncMeta;
+  return {
+    dirty: isBoolean(value.dirty) ? value.dirty : false,
+    revision: isNumber(value.revision) ? value.revision : 0,
+    baseServerUpdatedAt: isString(value.baseServerUpdatedAt) ? value.baseServerUpdatedAt : null,
+    lastSyncedAt: isString(value.lastSyncedAt) ? value.lastSyncedAt : null,
+    ownerUid: isString(value.ownerUid) ? value.ownerUid : null,
+  };
+};
 
 interface PersistedShape {
   targets: PersistedTarget[];
   activeTargetId: string | null;
-  cvEntries: CvEntry[];
+  cvEntries: PersistedCvEntry[];
   onboardingDraft?: OnboardingDraft | null;
+  tombstones?: unknown;
+  sync?: unknown;
 }
 
 /** Fills the fields added after the first release, leaving everything else untouched. */
@@ -165,6 +417,13 @@ const normalizeTarget = (target: PersistedTarget): Target => ({
   ...target,
   roadmap: target.roadmap.map(normalizeTask),
   focusTaskIds: target.focusTaskIds ?? [],
+  // Pre-sync data: the last moment we can vouch for is when it was created.
+  updatedAt: target.updatedAt ?? target.createdAt,
+});
+
+const normalizeCvEntry = (entry: PersistedCvEntry): CvEntry => ({
+  ...entry,
+  updatedAt: entry.updatedAt ?? entry.createdAt,
 });
 
 const checkPersistedAppState = (value: unknown): ShapeCheck => {
@@ -211,29 +470,54 @@ export const migrate = (persistedState: unknown): PersistedAppState => {
   const check = checkPersistedAppState(persistedState);
   if (!check.ok) {
     console.warn(`Maven: preserving unreadable persisted app state — ${check.reason}.`);
-    throw new Error('Saved data could not be loaded. It has not been deleted.');
+    throw new UnreadableSavedData('Saved data could not be loaded. It has not been deleted.');
   }
   const persisted = persistedState as PersistedShape;
   const targets = persisted.targets.map(normalizeTarget);
   return {
     ...persisted,
     targets,
+    cvEntries: persisted.cvEntries.map(normalizeCvEntry),
     // A draft written before this field existed is simply absent.
     onboardingDraft: persisted.onboardingDraft ?? null,
+    tombstones: normalizeTombstones(persisted.tombstones),
+    sync: normalizeSyncMeta(persisted.sync),
     activeTargetId: targets.some((target) => target.id === persisted.activeTargetId)
       ? persisted.activeTargetId
       : targets[0]?.id ?? null,
   };
 };
 
+/**
+ * Validates and normalizes records arriving from the server with the same
+ * rules used for data loaded from disk. Returns null if anything is
+ * malformed: sync then reports an error and touches nothing local.
+ */
+export const parseIncomingRecords = (targets: unknown[], cvEntries: unknown[]): SyncRecords | null => {
+  const parsedTargets: SyncRecords['targets'] = [];
+  for (const value of targets) {
+    if (isTargetTombstone(value)) parsedTargets.push({ id: value.id, updatedAt: value.updatedAt, deletedAt: value.deletedAt });
+    else if (isTarget(value)) parsedTargets.push(normalizeTarget(value));
+    else return null;
+  }
+  const parsedEntries: SyncRecords['cvEntries'] = [];
+  for (const value of cvEntries) {
+    if (isCvEntryTombstone(value)) {
+      parsedEntries.push({ id: value.id, targetId: value.targetId, updatedAt: value.updatedAt, deletedAt: value.deletedAt });
+    } else if (isCvEntry(value)) parsedEntries.push(normalizeCvEntry(value));
+    else return null;
+  }
+  return { targets: parsedTargets, cvEntries: parsedEntries };
+};
+
 export type AddTargetInput = Omit<
   Target,
-  'id' | 'createdAt' | 'roadmap' | 'focusTaskIds' | 'lastCheckInAt'
+  'id' | 'createdAt' | 'updatedAt' | 'roadmap' | 'focusTaskIds' | 'lastCheckInAt'
 > & {
   roadmap?: RoadmapTask[];
 };
 
-export type AddCvEntryInput = Omit<CvEntry, 'id' | 'createdAt'>;
+export type AddCvEntryInput = Omit<CvEntry, 'id' | 'createdAt' | 'updatedAt'>;
 
 /**
  * Enough to put back exactly what a delete removed, including where it sat.
@@ -329,7 +613,117 @@ interface AppState extends PersistedAppState {
   addCvEntry: (entry: AddCvEntryInput) => string;
   updateCvEntry: (id: string, updates: Partial<Pick<CvEntry, 'status' | 'text' | 'suggestions'>>) => void;
   resetAll: () => void;
+  /**
+   * Merges a server snapshot into whatever is local *right now* — not into a
+   * copy read before the request, which would drop an edit made while it was
+   * in flight. Returns true when the result differs from what the server
+   * holds, i.e. a push is still needed.
+   */
+  mergeRemote: (remote: SyncRecords, serverUpdatedAt: string | null) => boolean;
+  /** Bookkeeping only; never marks the data itself as changed. */
+  setSyncMeta: (meta: Partial<SyncMeta>) => void;
+  /** See clampFutureStamps. Marks dirty when anything was re-stamped. */
+  repairFutureStamps: (now: number) => void;
+  /**
+   * The user chose this device's data over an account's existing copy.
+   * Tombstones every live cloud record the device does not have, so the next
+   * sync replaces the account copy instead of merging into it. Called only
+   * after the user has confirmed.
+   */
+  replaceAccountCopy: (cloud: SyncRecords, serverUpdatedAt: string | null) => void;
 }
+
+type AppSet = (partial: Partial<AppState> | ((state: AppState) => Partial<AppState>)) => void;
+
+const withoutStamp = <T extends { updatedAt: string }>(record: T): string =>
+  canonicalJson({ ...record, updatedAt: '' });
+
+/**
+ * The one place sync bookkeeping happens. Every store action goes through
+ * it, so a future action cannot forget to stamp or to record a delete:
+ *
+ * - a target or CV entry that really changed gets a fresh monotonic
+ *   `updatedAt` (a new object with identical content keeps its old stamp);
+ * - one that disappeared leaves a tombstone, and one that comes back (undo)
+ *   takes its tombstone away again;
+ * - anything at all changing marks the data dirty and bumps the revision.
+ *
+ * Exported for tests. `now` is injected so stamps are deterministic there.
+ */
+export const stampChanges = (
+  current: PersistedAppState,
+  patch: Partial<PersistedAppState>,
+  now: number,
+): Partial<PersistedAppState> => {
+  let changed = false;
+  let tombstones = current.tombstones;
+  const out: Partial<PersistedAppState> = { ...patch };
+
+  if (patch.targets && patch.targets !== current.targets) {
+    const previous = new Map(current.targets.map((target) => [target.id, target]));
+    const next = patch.targets.map((incoming) => {
+      const before = previous.get(incoming.id);
+      if (before === incoming) return incoming;
+      // Normalised here, so what an action leaves in memory is exactly what a
+      // reload from disk would produce (see the invariant test).
+      const target = normalizeTarget(incoming);
+      if (before && withoutStamp(before) === withoutStamp(target)) return before;
+      changed = true;
+      return { ...target, updatedAt: monotonicStamp(before?.updatedAt, now) };
+    });
+    const nextIds = new Set(next.map((target) => target.id));
+    const removed: TargetTombstone[] = current.targets
+      .filter((target) => !nextIds.has(target.id))
+      .map((target) => {
+        const stamp = monotonicStamp(target.updatedAt, now);
+        return { id: target.id, updatedAt: stamp, deletedAt: stamp };
+      });
+    if (removed.length > 0) changed = true;
+    tombstones = {
+      ...tombstones,
+      targets: [
+        ...tombstones.targets.filter((tomb) => !nextIds.has(tomb.id) && !removed.some((r) => r.id === tomb.id)),
+        ...removed,
+      ],
+    };
+    out.targets = next;
+  }
+
+  if (patch.cvEntries && patch.cvEntries !== current.cvEntries) {
+    const previous = new Map(current.cvEntries.map((entry) => [entry.id, entry]));
+    const next = patch.cvEntries.map((incoming) => {
+      const before = previous.get(incoming.id);
+      if (before === incoming) return incoming;
+      const entry = normalizeCvEntry(incoming);
+      if (before && withoutStamp(before) === withoutStamp(entry)) return before;
+      changed = true;
+      return { ...entry, updatedAt: monotonicStamp(before?.updatedAt, now) };
+    });
+    const nextIds = new Set(next.map((entry) => entry.id));
+    const removed: CvEntryTombstone[] = current.cvEntries
+      .filter((entry) => !nextIds.has(entry.id))
+      .map((entry) => {
+        const stamp = monotonicStamp(entry.updatedAt, now);
+        return { id: entry.id, targetId: entry.targetId, updatedAt: stamp, deletedAt: stamp };
+      });
+    if (removed.length > 0) changed = true;
+    tombstones = {
+      ...tombstones,
+      cvEntries: [
+        ...tombstones.cvEntries.filter((tomb) => !nextIds.has(tomb.id) && !removed.some((r) => r.id === tomb.id)),
+        ...removed,
+      ],
+    };
+    out.cvEntries = next;
+  }
+
+  if (!changed) return out;
+  return {
+    ...out,
+    tombstones,
+    sync: { ...current.sync, dirty: true, revision: current.sync.revision + 1 },
+  };
+};
 
 /** Applies `map` to the active target only; other targets pass through unchanged. */
 const mapActiveTarget = (
@@ -374,19 +768,31 @@ const mapTaskSteps = (
 
 export const useAppStore = create<AppState>()(
   persist(
-    (set, get) => ({
+    (rawSet, get) => {
+      // Every action below writes through this; only sync and resetAll use rawSet.
+      const set: AppSet = (partial) => {
+        const current = get();
+        const patch = typeof partial === 'function' ? partial(current) : partial;
+        rawSet(stampChanges(current, patch, Date.now()) as Partial<AppState>);
+      };
+
+      return {
       ...emptyState,
 
       addTarget: (input) => {
         const id = createId();
+        const createdAt = new Date().toISOString();
         const target: Target = {
           focusTaskIds: [],
           ...input,
           id,
-          createdAt: new Date().toISOString(),
+          createdAt,
+          updatedAt: createdAt,
           roadmap: input.roadmap ?? [],
         };
-        set((state) => ({ targets: [...state.targets, target], activeTargetId: id }));
+        // The onboarding draft is cleared in the same write: a kill between
+        // two writes must not leave a used draft to pre-fill the next flow.
+        set((state) => ({ targets: [...state.targets, target], activeTargetId: id, onboardingDraft: null }));
         return id;
       },
 
@@ -487,6 +893,7 @@ export const useAppStore = create<AppState>()(
           status: 'pending',
           text: '',
           createdAt: completedAt,
+          updatedAt: completedAt,
         };
 
         set((state) => ({
@@ -796,39 +1203,146 @@ export const useAppStore = create<AppState>()(
 
       addCvEntry: (entry) => {
         const id = createId();
-        const cvEntry: CvEntry = { ...entry, id, createdAt: new Date().toISOString() };
+        const createdAt = new Date().toISOString();
+        const cvEntry: CvEntry = { ...entry, id, createdAt, updatedAt: createdAt };
         set((state) => ({ cvEntries: [...state.cvEntries, cvEntry] }));
         return id;
       },
 
       updateCvEntry: (id, updates) =>
-        set((state) => ({
-          cvEntries: state.cvEntries.map((entry) => (entry.id === id ? { ...entry, ...updates } : entry)),
-        })),
+        set((state) => {
+          if (state.cvEntries.some((entry) => entry.id === id)) {
+            return {
+              cvEntries: state.cvEntries.map((entry) => (entry.id === id ? { ...entry, ...updates } : entry)),
+            };
+          }
+          // Deleted while its bullet was generating, but still undoable. The
+          // result is kept on the held copy, so an undo restores it finished
+          // instead of pending — and the queue does not pay for it twice.
+          const undo = state.pendingUndo;
+          if (undo?.kind === 'cvEntry' && undo.entry.id === id) {
+            return { pendingUndo: { ...undo, entry: { ...undo.entry, ...updates } } };
+          }
+          if (undo?.kind === 'task' && undo.cvEntries.some((entry) => entry.id === id)) {
+            return {
+              pendingUndo: {
+                ...undo,
+                cvEntries: undo.cvEntries.map((entry) => (entry.id === id ? { ...entry, ...updates } : entry)),
+              },
+            };
+          }
+          return {};
+        }),
 
-      resetAll: () => set(emptyState),
-    }),
+      // A local wipe, as Settings describes it ("from this device"): no
+      // tombstones, so the account's copy is untouched and a later sync
+      // restores it, exactly like a fresh install.
+      resetAll: () => {
+        // Anything still in flight was for the data being wiped.
+        bumpEpoch();
+        rawSet({ ...emptyState, pendingUndo: null });
+      },
+
+      mergeRemote: (remote, serverUpdatedAt) => {
+        const incoming = stripIncoming(remote);
+        let needsPush = false;
+        rawSet((state) => {
+          // Incoming records are normalized (parseIncomingRecords fills
+          // defaults such as a task's `weight`); records built in memory by
+          // actions may not be yet — reloading from disk would normalize them.
+          // Merging the two shapes made an identical, identically stamped
+          // record look different: the tie-break kept the local shape, the
+          // result never matched the server, and every pull pushed again.
+          // Normalizing local first makes "same data" compare as same.
+          const local = toRecords({
+            ...state,
+            targets: state.targets.map(normalizeTarget),
+            cvEntries: state.cvEntries.map(normalizeCvEntry),
+          });
+          const merged = fromRecords(mergeSnapshots(local, incoming, Date.now()));
+          const targets = restoreDeviceLocalFields(state.targets, merged.targets);
+          needsPush = !recordsEqual(stripForPush(toRecords(merged)), stripForPush(incoming));
+          return {
+            targets,
+            cvEntries: merged.cvEntries,
+            tombstones: merged.tombstones,
+            activeTargetId: chooseActiveTargetId(state.activeTargetId, targets),
+            sync: {
+              ...state.sync,
+              baseServerUpdatedAt: serverUpdatedAt,
+              // Still dirty if this device holds anything the server lacks.
+              dirty: needsPush,
+            },
+          };
+        });
+        return needsPush;
+      },
+
+      setSyncMeta: (meta) => rawSet((state) => ({ sync: { ...state.sync, ...meta } })),
+
+      replaceAccountCopy: (cloud, serverUpdatedAt) =>
+        rawSet((state) => {
+          const now = Date.now();
+          const localTargets = new Set(state.targets.map((target) => target.id));
+          const localEntries = new Set(state.cvEntries.map((entry) => entry.id));
+          const targetTombs: TargetTombstone[] = cloud.targets
+            .filter((record) => !isTombstoneRecord(record) && !localTargets.has(record.id))
+            .map((record) => {
+              const stamp = monotonicStamp(record.updatedAt, now);
+              return { id: record.id, updatedAt: stamp, deletedAt: stamp };
+            });
+          const entryTombs: CvEntryTombstone[] = cloud.cvEntries
+            .filter((record) => !isTombstoneRecord(record) && !localEntries.has(record.id))
+            .map((record) => {
+              const stamp = monotonicStamp(record.updatedAt, now);
+              return { id: record.id, targetId: record.targetId, updatedAt: stamp, deletedAt: stamp };
+            });
+          return {
+            tombstones: {
+              targets: [...state.tombstones.targets, ...targetTombs],
+              cvEntries: [...state.tombstones.cvEntries, ...entryTombs],
+            },
+            sync: { ...state.sync, baseServerUpdatedAt: serverUpdatedAt, dirty: true, revision: state.sync.revision + 1 },
+          };
+        }),
+
+      repairFutureStamps: (now) =>
+        rawSet((state) => {
+          const repaired = clampFutureStamps(state, now);
+          if (repaired === state) return {};
+          return {
+            ...repaired,
+            sync: { ...state.sync, dirty: true, revision: state.sync.revision + 1 },
+          };
+        }),
+      };
+    },
     {
-      name: 'trajectory-app-state',
+      name: STORAGE_KEY,
       version: STORE_VERSION,
+      migrate: migrateStoredState,
       storage: createJSONStorage(() => ({
         ...AsyncStorage,
-        setItem: async (name: string, value: string) => {
-          // Subsequent saves replace the backup too, so explicitly deleted personal
-          // data is not retained in a stale migration copy.
-          await AsyncStorage.setItem(`${name}-pre-migration-backup`, value);
-          await AsyncStorage.setItem(name, value);
-        },
+        setItem: writeState,
         getItem: async (name: string) => {
           const saved = await AsyncStorage.getItem(name);
-          if (saved !== null) await AsyncStorage.setItem(`${name}-pre-migration-backup`, saved);
+          // Before migrate runs, and only for an older version. If the copy
+          // cannot be written the load fails on purpose: migrating would write
+          // the new shape back over the only copy of the old data.
+          if (saved !== null) await savePreMigrationCopy(saved);
           return saved;
         },
       })),
       onRehydrateStorage: () => {
-        useStorageStatus.setState({ ready: false, error: null });
-        return (_state, error) => useStorageStatus.setState({ ready: !error,
-          error: error ? 'Saved data could not be loaded. Your original data is preserved. Retry or contact support; do not reinstall the app.' : null });
+        // An earlier failure stays on screen while a retry reads again, so the
+        // screen does not flip to "Loading" and lose its buttons mid-retry.
+        useStorageStatus.setState({ ready: false, writeFailed: false });
+        return (_state, error) =>
+          useStorageStatus.setState({
+            ready: !error,
+            error: error ? loadErrorMessage(error) : null,
+            loadFailure: error ? classifyLoadFailure(error) : null,
+          });
       },
       // Runs on every rehydration (not just version bumps), so a same-version
       // but corrupted or pre-redesign payload still resets safely.
@@ -836,7 +1350,14 @@ export const useAppStore = create<AppState>()(
         ...currentState,
         ...migrate(persistedState),
       }),
-      partialize: ({ targets, activeTargetId, cvEntries, onboardingDraft }) => ({ targets, activeTargetId, cvEntries, onboardingDraft }),
+      partialize: ({ targets, activeTargetId, cvEntries, onboardingDraft, tombstones, sync }) => ({
+        targets,
+        activeTargetId,
+        cvEntries,
+        onboardingDraft,
+        tombstones,
+        sync,
+      }),
     },
   ),
 );

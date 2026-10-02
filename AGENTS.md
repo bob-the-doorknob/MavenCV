@@ -29,6 +29,7 @@ This repository contains the source code for **Maven**, a mobile app built for t
 - Do NOT trigger AI calls on the daily checklist screen (Screen 2). Daily interactions must be 100% offline, local, and sub-second.
 - Do NOT rebuild full project bundles to test a syntax or type change.
 - Do NOT delete existing local database keys without an explicit migration check.
+- Do NOT install an older build over a newer one on a device with real data: older builds cannot read persisted data version 2 (`STORE_VERSION` in `mobile/src/store/useAppStore.ts`). They load nothing, and the first action then overwrites the saved data.
 
 ---
 

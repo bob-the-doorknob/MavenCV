@@ -19,7 +19,7 @@ vi.mock('@react-native-async-storage/async-storage', () => {
 
 import type { CvEntry, RoadmapTask, Target, TaskStep } from '../types';
 import { calculateReadiness } from '../utils/readiness';
-import { migrate, selectFocusTasks, selectIsCheckInDue, useAppStore } from './useAppStore';
+import { emptySyncMeta, migrate, selectFocusTasks, selectIsCheckInDue, useAppStore } from './useAppStore';
 
 const step = (overrides: Partial<TaskStep> = {}): TaskStep => ({
   id: 'step-1',
@@ -53,6 +53,7 @@ const fullTarget = (overrides: Partial<Target> = {}): Target => ({
   level: 'internship',
   experience: 'Two class projects in TypeScript.',
   createdAt: '2026-01-01T00:00:00.000Z',
+  updatedAt: '2026-01-01T00:00:00.000Z',
   roadmap: [task()],
   focusTaskIds: [],
   ...overrides,
@@ -65,6 +66,7 @@ const fullCvEntry = (overrides: Partial<CvEntry> = {}): CvEntry => ({
   status: 'pending',
   text: '',
   createdAt: '2026-01-01T00:00:00.000Z',
+  updatedAt: '2026-01-01T00:00:00.000Z',
   ...overrides,
 });
 
@@ -337,6 +339,9 @@ describe('removeTarget', () => {
   });
 });
 
+/** What a store saved before sync existed gains on load. */
+const syncDefaults = { tombstones: { targets: [], cvEntries: [] }, sync: emptySyncMeta };
+
 describe('migrate', () => {
   it('rehydrates valid current-shape data unchanged, including populated optional fields', () => {
     const valid = {
@@ -357,7 +362,7 @@ describe('migrate', () => {
       cvEntries: [fullCvEntry({ status: 'ready', text: 'Built 1 thing.', suggestions: ['Add a metric.'] })],
     };
 
-    expect(migrate(valid)).toEqual({ ...valid, onboardingDraft: null });
+    expect(migrate(valid)).toEqual({ ...valid, onboardingDraft: null, ...syncDefaults });
   });
 
   it('keeps an unrecognized extra field instead of resetting', () => {
@@ -369,7 +374,7 @@ describe('migrate', () => {
       appBuild: '0.1.0',
     };
 
-    expect(migrate(withExtra)).toEqual({ ...withExtra, onboardingDraft: null });
+    expect(migrate(withExtra)).toEqual({ ...withExtra, onboardingDraft: null, ...syncDefaults });
     expect(warnSpy).not.toHaveBeenCalled();
 
     warnSpy.mockRestore();
@@ -384,7 +389,7 @@ describe('migrate', () => {
       cvEntries: [fullCvEntry()],
     };
 
-    expect(migrate(missingOptionals)).toEqual({ ...missingOptionals, onboardingDraft: null });
+    expect(migrate(missingOptionals)).toEqual({ ...missingOptionals, onboardingDraft: null, ...syncDefaults });
     expect(warnSpy).not.toHaveBeenCalled();
 
     warnSpy.mockRestore();
@@ -408,7 +413,7 @@ describe('migrate', () => {
   it('resets silently (no warning) when nothing has been persisted yet', () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
-    const empty = { targets: [], activeTargetId: null, cvEntries: [], onboardingDraft: null };
+    const empty = { targets: [], activeTargetId: null, cvEntries: [], onboardingDraft: null, ...syncDefaults };
     expect(migrate(undefined)).toEqual(empty);
     expect(migrate(null)).toEqual(empty);
     expect(warnSpy).not.toHaveBeenCalled();
@@ -480,7 +485,7 @@ describe('migrate', () => {
       cvEntries: [],
     };
 
-    expect(migrate(current)).toEqual({ ...current, onboardingDraft: null });
+    expect(migrate(current)).toEqual({ ...current, onboardingDraft: null, ...syncDefaults });
   });
 
   it('resets when steps are present but wrong-typed', () => {

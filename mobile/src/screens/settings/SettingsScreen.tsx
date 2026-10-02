@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Alert, Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
+import { Alert, DevSettings, Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -14,6 +14,25 @@ import { resolveRoleTitle } from '../../data/roles';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { checkProEntitlement } from '../../services/proStatus';
 import { restorePurchases } from '../../services/revenueCat';
+import {
+  AccountDeletionFailed,
+  cancelConflict,
+  deleteAccount,
+  linkGoogle,
+  resolveConflict,
+  type DataCounts,
+} from '../../services/account';
+import { loadAccountState, useAccountState } from '../../services/accountState';
+import { getGoogleProvider } from '../../services/googleCredential';
+import { corruptSavedData, devCorruptionAvailable, resetThisDevice } from '../../services/localData';
+import { signOutAndClear } from '../../services/signOut';
+import { onAccountLinked, onForeground, useSyncStatus } from '../../services/sync';
+import {
+  canSimulateLinkedAccount,
+  isLinkedAccount,
+  setSimulateLinkedAccount,
+  useSyncDevAccount,
+} from '../../services/syncAccount';
 import { EditTargetSheet } from '../roadmap/EditTargetSheet';
 import { ProUpsellSheet } from '../cv/ProUpsellSheet';
 import { useActiveTarget, useAppStore } from '../../store/useAppStore';
@@ -21,6 +40,9 @@ import { minTouchTarget, spacing, typography, type Theme } from '../../theme/tok
 import { useTheme } from '../../theme/useTheme';
 import { formatExportText } from '../../utils/exportText';
 import { formatMonthYear } from '../../utils/targetDate';
+import { syncStatusCopy } from '../../utils/syncStatusCopy';
+import { accountRowModel, accountUiVisibility } from '../../utils/accountVisibility';
+import { startConflictPrompt } from '../../utils/conflictPrompt';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 
@@ -38,6 +60,15 @@ export function SettingsScreen() {
   const [restoring, setRestoring] = useState(false);
   const [editVisible, setEditVisible] = useState(false);
   const [upsellVisible, setUpsellVisible] = useState(false);
+  const { status: syncStatus, lastSyncedAt } = useSyncStatus();
+  // Read so the row re-renders when the dev switch flips.
+  const simulateLinked = useSyncDevAccount((state) => state.simulateLinked);
+  const account = useAccountState((state) => state.account);
+  const accountReadFailed = useAccountState((state) => state.readFailed);
+  const [linking, setLinking] = useState(false);
+  const googleAvailable = getGoogleProvider().isAvailable();
+  const linked = isLinkedAccount();
+  const syncCopy = syncStatusCopy(syncStatus, linked, lastSyncedAt, Date.now());
   const [regenerating, setRegenerating] = useState(false);
   const targetCount = useAppStore((state) => state.targets.length);
 
@@ -57,11 +88,17 @@ export function SettingsScreen() {
         `${doneCount} finished ${doneCount === 1 ? 'milestone' : 'milestones'} and the CV bullets they earned are kept. ${openCount} unfinished ${openCount === 1 ? 'milestone is' : 'milestones are'} replaced with a fresh set built from your current experience.`,
         [
           { text: 'Cancel', style: 'cancel' },
-          { text: 'Regenerate', onPress: () => navigation.navigate('RegenerateRoadmap') },
+          {
+            text: 'Regenerate',
+            onPress: () => navigation.navigate('RegenerateRoadmap'),
+          },
         ],
       );
     } catch (error) {
-      Alert.alert('Unable to regenerate', error instanceof Error ? error.message : 'Please try again.');
+      Alert.alert(
+        'Unable to regenerate',
+        error instanceof Error ? error.message : 'Please try again.',
+      );
     } finally {
       setRegenerating(false);
     }
@@ -133,11 +170,164 @@ export function SettingsScreen() {
         {
           text: 'Reset',
           style: 'destructive',
-          onPress: () => useAppStore.getState().resetAll(),
+          onPress: () => void resetThisDevice(),
         },
       ],
     );
   };
+
+  // Non-dismissible, and every way out (Cancel, outside tap, Back) cancels the
+  // pending conflict the same way. See utils/conflictPrompt.ts.
+  const askConflict = (cloud: DataCounts, device: DataCounts): void => {
+    startConflictPrompt(cloud, device, {
+      cancel: () => void cancelConflict(),
+      resolve: (choice) => void resolveConflict(choice),
+      show: (spec) => Alert.alert(spec.title, spec.message, spec.buttons, spec.options),
+    });
+  };
+
+  const continueWithGoogle = async (): Promise<void> => {
+    if (linking) return;
+    setLinking(true);
+    try {
+      const result = await linkGoogle();
+      if (result.kind === 'unavailable') {
+        Alert.alert(
+          "Google sign-in isn't available",
+          "This build doesn't include Google sign-in yet.",
+        );
+      } else if (result.kind === 'conflict') {
+        askConflict(result.cloud, result.device);
+      }
+    } catch {
+      Alert.alert(
+        "Couldn't sign in",
+        'Check your connection and try again. Nothing on this phone was changed.',
+      );
+    } finally {
+      setLinking(false);
+    }
+  };
+
+  const confirmDeleteAccount = (): void => {
+    Alert.alert(
+      'Delete your account?',
+      "This permanently deletes your account and the roadmaps and CV bullets stored in it, on every device, and clears this phone. This can't be undone.",
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete account',
+          style: 'destructive',
+          onPress: () => {
+            deleteAccount().catch((error: unknown) => {
+              // Never imply success: nothing was cleared here, and we say so.
+              Alert.alert(
+                'Account not deleted',
+                error instanceof AccountDeletionFailed
+                  ? "Your account couldn't be deleted, so nothing was removed from this phone. Check your connection and try again."
+                  : 'Something went wrong. Nothing was removed from this phone. Try again.',
+              );
+            });
+          },
+        },
+      ],
+    );
+  };
+
+  const accountRow = accountRowModel({
+    account,
+    providerAvailable: googleAvailable,
+    linking,
+    accountReadFailed,
+  });
+  const ui = accountUiVisibility({
+    providerAvailable: googleAvailable,
+    hasAccount: account !== null,
+    linked,
+    devSimulation: canSimulateLinkedAccount(),
+    accountReadFailed,
+  });
+
+  const retryAccountRead = async (): Promise<void> => {
+    await loadAccountState();
+    // If the account is back, pick up where sync left off.
+    if (useAccountState.getState().account) onForeground();
+  };
+
+  const [signingOut, setSigningOut] = useState(false);
+
+  const signOut = async (force: boolean): Promise<void> => {
+    if (signingOut) return;
+    setSigningOut(true);
+    let result: Awaited<ReturnType<typeof signOutAndClear>>;
+    try {
+      result = await signOutAndClear({ force });
+    } finally {
+      setSigningOut(false);
+    }
+    if (result === 'unsynced') {
+      Alert.alert(
+        "Some changes haven't reached your account",
+        "You're offline or sync is paused, so changes made on this phone since the last sync would be lost. Try again when you're back online, or sign out anyway.",
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Sign out anyway',
+            style: 'destructive',
+            onPress: () => void signOut(true),
+          },
+        ],
+      );
+    }
+  };
+
+  // With a linked account a plain wipe would come straight back on the next
+  // pull, so the action becomes signing out. The account keeps its copy;
+  // removing that is Delete account's job.
+  const confirmSignOut = (): void => {
+    Alert.alert(
+      'Sign out and clear this device?',
+      'Your roadmaps and CV bullets stay in your account and come back when you sign in again. This removes them from this phone only.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Sign out and clear',
+          style: 'destructive',
+          onPress: () => void signOut(false),
+        },
+      ],
+    );
+  };
+
+  // Development builds only: breaks the saved data on purpose to try the recovery screen.
+  const confirmCorrupt = (): void => {
+    Alert.alert(
+      'Corrupt saved data?',
+      "Development only. This writes invalid data over this phone's saved data, then reloads the app so you land on the recovery screen. The data is gone unless you have an export or a saved copy.",
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Corrupt and reload',
+          style: 'destructive',
+          onPress: () => {
+            corruptSavedData()
+              .then(() => DevSettings.reload())
+              .catch(() => Alert.alert('Not corrupted', 'The saved data could not be overwritten.'));
+          },
+        },
+      ],
+    );
+  };
+
+  // While signing out the row is disabled — no press, no chevron — and says so.
+  const signOutRow = signingOut
+    ? { title: 'Signing out…', subtitle: 'Clearing this phone. This can take a moment.' }
+    : {
+        isDanger: true,
+        onPress: confirmSignOut,
+        subtitle: 'Removes your data from this phone. Your account keeps its copy.',
+        title: 'Sign out and clear this device',
+      };
 
   return (
     <View style={styles.screen}>
@@ -198,6 +388,52 @@ export function SettingsScreen() {
           </Card>
         </View>
 
+        {ui.showAccount && accountRow ? (
+          <View style={styles.section}>
+            <SectionLabel>Account</SectionLabel>
+            <Card>
+              <SettingsRow
+                isFirst
+                subtitle={accountRow.subtitle}
+                title={accountRow.title}
+                {...(accountRow.action === 'link'
+                  ? { onPress: () => void continueWithGoogle() }
+                  : accountRow.action === 'retryRead'
+                    ? { onPress: () => void retryAccountRead() }
+                    : {})}
+              />
+            </Card>
+          </View>
+        ) : null}
+
+        {ui.showSync ? (
+          <View style={styles.section}>
+            <SectionLabel>Sync</SectionLabel>
+            <Card>
+              <SettingsRow
+                isFirst
+                // A manual retry, only when there is something to retry. It also
+                // lifts a date-check pause, like reopening the app. Unlinked, the
+                // row is information only — no chevron that does nothing.
+                subtitle={syncCopy.subtitle}
+                title={syncCopy.title}
+                {...(linked ? { onPress: onForeground } : {})}
+              />
+              {canSimulateLinkedAccount() ? (
+                <SettingsRow
+                  isFirst={false}
+                  onPress={() => {
+                    setSimulateLinkedAccount(!simulateLinked);
+                    if (!simulateLinked) onAccountLinked();
+                  }}
+                  subtitle="Development build only. Syncs with the in-memory mock server."
+                  title={simulateLinked ? 'Simulated account: on' : 'Simulated account: off'}
+                />
+              ) : null}
+            </Card>
+          </View>
+        ) : null}
+
         <View style={styles.section}>
           <SectionLabel>Data</SectionLabel>
           <Card>
@@ -207,13 +443,37 @@ export function SettingsScreen() {
               subtitle="Share your target, milestones and CV bullets as plain text"
               title="Export everything"
             />
-            <SettingsRow
-              isDanger
-              isFirst={false}
-              onPress={confirmReset}
-              subtitle="Deletes every roadmap and CV bullet on this device"
-              title="Reset all data"
-            />
+            {account ? (
+              <>
+                <SettingsRow isFirst={false} {...signOutRow} />
+                <SettingsRow
+                  isDanger
+                  isFirst={false}
+                  onPress={confirmDeleteAccount}
+                  subtitle="Deletes your account and everything stored in it, on every device"
+                  title="Delete account"
+                />
+              </>
+            ) : linked ? (
+              <SettingsRow isFirst={false} {...signOutRow} />
+            ) : (
+              <SettingsRow
+                isDanger
+                isFirst={false}
+                onPress={confirmReset}
+                subtitle="Deletes every roadmap and CV bullet on this device"
+                title="Reset all data"
+              />
+            )}
+            {devCorruptionAvailable() ? (
+              <SettingsRow
+                isDanger
+                isFirst={false}
+                onPress={confirmCorrupt}
+                subtitle="Development builds only. Overwrites the saved data with invalid data, then reloads."
+                title="Corrupt saved data (dev)"
+              />
+            ) : null}
           </Card>
         </View>
 
@@ -233,7 +493,11 @@ export function SettingsScreen() {
         </View>
       </ScrollView>
 
-      <EditTargetSheet onClose={() => setEditVisible(false)} target={target} visible={editVisible} />
+      <EditTargetSheet
+        onClose={() => setEditVisible(false)}
+        target={target}
+        visible={editVisible}
+      />
       <ProUpsellSheet
         onClose={() => setUpsellVisible(false)}
         trigger="regenerate"
@@ -248,13 +512,29 @@ interface SettingsRowProps {
   subtitle: string;
   isFirst: boolean;
   isDanger?: boolean;
-  onPress: () => void;
+  /** Without one the row is information only: no chevron, no press. */
+  onPress?: () => void;
 }
 
 function SettingsRow({ title, subtitle, isFirst, isDanger = false, onPress }: SettingsRowProps) {
   const theme = useTheme();
   const styles = useMemo(() => createStyles(theme), [theme]);
   const press = usePressScale();
+
+  if (!onPress) {
+    return (
+      <View
+        accessibilityLabel={`${title}. ${subtitle}`}
+        accessible
+        style={[styles.row, !isFirst && styles.rowDivided]}
+      >
+        <View style={styles.rowCopy}>
+          <Text style={[styles.rowTitle, isDanger && styles.rowTitleDanger]}>{title}</Text>
+          <Text style={styles.rowSubtitle}>{subtitle}</Text>
+        </View>
+      </View>
+    );
+  }
 
   return (
     <Animated.View style={press.style}>

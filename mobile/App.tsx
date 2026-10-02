@@ -1,14 +1,17 @@
 import { useEffect, useMemo } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { AppState, StyleSheet, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import * as SplashScreen from 'expo-splash-screen';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
 import { BrandSplash } from './src/components/BrandSplash';
-import { Button } from './src/components/ui';
+import { LoadErrorScreen } from './src/components/LoadErrorScreen';
+import { StorageWriteNotice } from './src/components/StorageWriteNotice';
 import { RootNavigator } from './src/navigation/RootNavigator';
 import { configureRevenueCat } from './src/services/revenueCat';
+import { loadAccountState } from './src/services/accountState';
+import { startSync } from './src/services/sync';
 import { useAppStore, useStorageStatus } from './src/store/useAppStore';
 import type { Theme } from './src/theme/tokens';
 import { useAppFonts } from './src/theme/fonts';
@@ -30,6 +33,32 @@ export default function App() {
     configureRevenueCat();
   }, []);
 
+  // Sync starts only once saved data is loaded: merging into an empty store
+  // that has not finished hydrating would look like a fresh device. It never
+  // blocks rendering — every request runs in the background.
+  useEffect(() => {
+    if (!hydrated) {
+      return undefined;
+    }
+    // The linked account decides whether sync may run at all, so it is read
+    // first. Until it loads, "linked?" answers no — the safe default.
+    let stop: (() => void) | null = null;
+    let cancelled = false;
+    void loadAccountState().then(() => {
+      if (cancelled) return;
+      stop = startSync((onActive) => {
+        const subscription = AppState.addEventListener('change', (next) => {
+          if (next === 'active') onActive();
+        });
+        return () => subscription.remove();
+      });
+    });
+    return () => {
+      cancelled = true;
+      stop?.();
+    };
+  }, [hydrated]);
+
   // The splash also comes down on a storage failure — that state needs a
   // retry button, which the native splash cannot draw.
   useEffect(() => {
@@ -49,19 +78,16 @@ export default function App() {
           {/* Screens with a dark header block override this with their own. */}
           <StatusBar style={theme.mode === 'dark' ? 'light' : 'dark'} />
           {canRender ? (
-            <RootNavigator />
+            <>
+              <RootNavigator />
+              <StorageWriteNotice />
+            </>
           ) : (
-            <BrandSplash
-              isError={Boolean(error)}
-              message={error ?? 'Loading your saved roadmap'}
-            >
-              {error ? (
-                <Button
-                  label="Retry loading saved data"
-                  onPress={() => void useAppStore.persist.rehydrate()}
-                />
-              ) : null}
-            </BrandSplash>
+            error ? (
+              <LoadErrorScreen />
+            ) : (
+              <BrandSplash message="Loading your saved roadmap" />
+            )
           )}
         </View>
       </SafeAreaProvider>

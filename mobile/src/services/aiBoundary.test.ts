@@ -11,7 +11,7 @@ const operations = [
 ];
 beforeEach(() => {
   vi.clearAllMocks(); mocks.consent.mockReturnValue(true); mocks.attest.mockResolvedValue('attested'); mocks.auth.mockResolvedValue('user-token');
-  mocks.fetch.mockResolvedValue({ ok: true, json: async () => ({ tasks: [], bullets: ['Built 1 app.'], experience: 'Built 1 app.', questions: [] }) });
+  mocks.fetch.mockResolvedValue({ ok: true, json: async () => ({ tasks: [{ id: 't1', title: 'Build 1 API' }], bullets: ['Built 1 app.'], experience: 'Built 1 app.', questions: [] }) });
   vi.stubGlobal('fetch', mocks.fetch); vi.stubEnv('EXPO_PUBLIC_USE_MOCK_API', 'false'); vi.stubEnv('EXPO_PUBLIC_API_BASE_URL', 'https://api.example.test');
 });
 afterEach(() => { vi.unstubAllEnvs(); vi.unstubAllGlobals(); });

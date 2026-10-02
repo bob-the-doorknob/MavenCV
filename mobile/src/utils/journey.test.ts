@@ -23,6 +23,7 @@ const target = (roadmap: RoadmapTask[]): Target => ({
   level: 'internship',
   experience: 'Two class projects.',
   createdAt: '2026-01-01T00:00:00.000Z',
+  updatedAt: '2026-01-01T00:00:00.000Z',
   focusTaskIds: [],
   roadmap,
 });
@@ -34,6 +35,7 @@ const entry = (overrides: Partial<CvEntry> = {}): CvEntry => ({
   status: 'ready',
   text: 'Built 1 portfolio project.',
   createdAt: '2026-01-02T00:00:00.000Z',
+  updatedAt: '2026-01-02T00:00:00.000Z',
   ...overrides,
 });
 

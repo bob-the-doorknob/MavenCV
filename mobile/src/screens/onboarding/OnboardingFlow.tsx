@@ -8,6 +8,7 @@ import { CUSTOM_ROLE_ID, type Level } from '../../data/roles';
 import { useAppStore } from '../../store/useAppStore';
 import { useTheme } from '../../theme/useTheme';
 import { EXPERIENCE_MIN_LENGTH } from '../../utils/experienceLimits';
+import { truncateText } from '../../utils/sanitizeText';
 import { AboutYouScreen } from './AboutYouScreen';
 import { GeneratingScreen } from './GeneratingScreen';
 import { ReadyByScreen } from './ReadyByScreen';
@@ -66,7 +67,7 @@ export function OnboardingFlow() {
   }, [step, roleId, customTitle, level, employer, experience, targetDate]);
 
   const handleCustomTitleChange = useCallback((text: string) => {
-    setCustomTitle(text.slice(0, MAX_CUSTOM_TITLE_LENGTH));
+    setCustomTitle(truncateText(text, MAX_CUSTOM_TITLE_LENGTH));
   }, []);
 
   const canContinueRole = roleId !== null && (roleId !== CUSTOM_ROLE_ID || customTitle.trim().length > 0);

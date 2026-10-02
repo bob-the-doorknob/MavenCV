@@ -30,6 +30,12 @@ const MESSAGES: Readonly<Record<ApiErrorKind, ErrorMessage>> = {
   },
   server: GENERIC,
   invalid_response: GENERIC,
+  invalid_input: {
+    title: "Some text couldn't be sent",
+    message:
+      "Part of the text you entered couldn't be processed. Check it for unusual characters or pasted formatting, edit it, then try again.",
+    canRetry: false,
+  },
   auth: {
     title: "Couldn't verify this device",
     message: "We couldn't verify this device. Check your connection and retry. If this continues, contact support.",

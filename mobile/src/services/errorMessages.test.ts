@@ -7,7 +7,7 @@ import { ApiError, type ApiErrorKind } from './api';
 import { getErrorMessage } from './errorMessages';
 
 describe('getErrorMessage', () => {
-  it.each<ApiErrorKind>(['rate_limited', 'network', 'server', 'invalid_response', 'auth'])(
+  it.each<ApiErrorKind>(['rate_limited', 'network', 'server', 'invalid_response', 'invalid_input', 'auth'])(
     'returns a non-empty title, message, and a boolean canRetry for %s',
     (kind) => {
       const result = getErrorMessage(new ApiError(kind, 'internal detail'));
@@ -32,6 +32,16 @@ describe('getErrorMessage', () => {
 
   it('gives server and invalid_response the same generic message', () => {
     expect(getErrorMessage(new ApiError('server', 'x'))).toEqual(getErrorMessage(new ApiError('invalid_response', 'x')));
+  });
+
+  it('tells the user some text could not be sent, not that the server failed', () => {
+    const result = getErrorMessage(new ApiError('invalid_input', 'x'));
+    expect(result.title).toBe("Some text couldn't be sent");
+    expect(result.message).toContain('text you entered');
+    expect(result.message).not.toContain('our side');
+    expect(result).not.toEqual(getErrorMessage(new ApiError('invalid_response', 'x')));
+    // Retrying the same text fails the same way; the way forward is to edit it.
+    expect(result.canRetry).toBe(false);
   });
 
   it('falls back to the generic message for a non-ApiError', () => {

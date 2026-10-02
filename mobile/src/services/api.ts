@@ -2,30 +2,56 @@ import type { Level } from '../data/roles';
 import { findRolePreset, resolveRoleTitle } from '../data/roles';
 import type { RoadmapTask, TaskStep } from '../types';
 import { createId } from '../utils/id';
+import { prepareOutgoingText } from '../utils/sanitizeText';
 import { formatMockCvBullet } from '../utils/cvBullets';
 import { clampEstimatedWeeks } from '../utils/schedule';
 import { getAuthToken } from './auth';
 import { getAppCheckToken } from './appCheck';
 import { hasAiConsent, loadConsent } from './privacy';
+import { mockAuthBackend } from './mockAuthBackend';
+import { SYNC_MAX_BODY_BYTES, mockSyncServerFor, utf8Length } from './syncMockServer';
 
-/** normalizeRoadmapInput rejects an experience longer than this. */
+/** The backend's limits, in UTF-16 units, per field (backend/src/services). */
 const MAX_EXPERIENCE_LENGTH = 4_000;
+const MAX_ROLE_TITLE_LENGTH = 120;
+const MAX_EMPLOYER_LENGTH = 120;
+const MAX_TASK_TITLE_LENGTH = 200;
+const MAX_NOTES_LENGTH = 2_000;
 /** normalizeCvBulletInput rejects a targetRole longer than this. */
 const MAX_TARGET_ROLE_LENGTH = 80;
+/** The backend returns 5-7 milestones; far more than that is a bad response, not a big roadmap. */
+const MAX_ROADMAP_TASKS = 20;
 
 const ROADMAP_TIMEOUT_MS = 120_000;
+/** Sync moves no AI work, so it has no reason to wait as long as generation. */
+const SYNC_TIMEOUT_MS = 30_000;
 const CV_BULLET_TIMEOUT_MS = 120_000;
 const EXTRACT_PROFILE_TIMEOUT_MS = 120_000;
 
-export type ApiErrorKind = 'rate_limited' | 'network' | 'server' | 'invalid_response' | 'auth' | 'consent_required';
+export type ApiErrorKind =
+  | 'rate_limited'
+  | 'network'
+  | 'server'
+  | 'invalid_response'
+  /** The backend refused text the user supplied. Retrying cannot help; editing the text can. */
+  | 'invalid_input'
+  | 'auth'
+  | 'consent_required';
 
 export class ApiError extends Error {
   public readonly kind: ApiErrorKind;
+  /**
+   * The backend's error code, when it sent one. Screens never read it (they
+   * use getErrorMessage); sync does, to tell a wrong device clock apart from
+   * other rejected input.
+   */
+  public readonly code: string | undefined;
 
-  public constructor(kind: ApiErrorKind, message: string) {
+  public constructor(kind: ApiErrorKind, message: string, code?: string) {
     super(message);
     this.name = 'ApiError';
     this.kind = kind;
+    this.code = code;
   }
 }
 
@@ -72,9 +98,16 @@ const ERROR_KINDS_BY_CODE: Readonly<Record<string, ApiErrorKind>> = {
   CV_PROFILE_GENERATION_FAILED: 'server',
   SERVICE_UNAVAILABLE: 'server',
   INTERNAL_ERROR: 'server',
-  INVALID_ROADMAP_INPUT: 'invalid_response',
-  INVALID_CV_BULLET_INPUT: 'invalid_response',
-  INVALID_CV_PROFILE_INPUT: 'invalid_response',
+  INVALID_ROADMAP_INPUT: 'invalid_input',
+  INVALID_CV_BULLET_INPUT: 'invalid_input',
+  INVALID_CV_PROFILE_INPUT: 'invalid_input',
+  // docs/sync-contract.md §6. SYNC_CONFLICT never becomes an ApiError.
+  SYNC_ACCOUNT_REQUIRED: 'auth',
+  INVALID_SYNC_INPUT: 'invalid_response',
+  SYNC_CLOCK_SKEW: 'invalid_response',
+  SYNC_SCHEMA_UNSUPPORTED: 'invalid_response',
+  SYNC_PAYLOAD_TOO_LARGE: 'invalid_response',
+  SYNC_LIMIT_EXCEEDED: 'invalid_response',
 };
 
 const kindFromStatus = (status: number): ApiErrorKind => {
@@ -99,6 +132,18 @@ const readErrorResponse = async (response: Response): Promise<ApiError> => {
   return new ApiError(
     (code === undefined ? undefined : ERROR_KINDS_BY_CODE[code]) ?? kindFromStatus(response.status),
     message ?? `Backend request failed (${response.status}).`,
+    code,
+  );
+};
+
+/** Same envelope as readErrorResponse, for a body already parsed (the mock server). */
+const errorFromBody = (status: number, body: unknown): ApiError => {
+  const error = isRecord(body) && isRecord(body.error) ? body.error : undefined;
+  const code = typeof error?.code === 'string' ? error.code : undefined;
+  return new ApiError(
+    (code === undefined ? undefined : ERROR_KINDS_BY_CODE[code]) ?? kindFromStatus(status),
+    typeof error?.message === 'string' ? error.message : `Sync request failed (${status}).`,
+    code,
   );
 };
 
@@ -177,13 +222,31 @@ export const mapRoadmapResponse = (raw: unknown): RoadmapTask[] => {
     throw new ApiError('invalid_response', 'Roadmap response was missing a tasks array.');
   }
 
+  // A bad response becomes a retryable error — never an empty or broken roadmap.
+  if (raw.tasks.length === 0) {
+    throw new ApiError('invalid_response', 'Roadmap response had no tasks.');
+  }
+  if (raw.tasks.length > MAX_ROADMAP_TASKS) {
+    throw new ApiError('invalid_response', `Roadmap response had more than ${MAX_ROADMAP_TASKS} tasks.`);
+  }
+
+  const seenIds = new Set<string>();
   return raw.tasks.map((item, index) => {
     if (!isRecord(item) || typeof item.id !== 'string' || typeof item.title !== 'string') {
       throw new ApiError('invalid_response', `Roadmap task at index ${index} was missing an id or title.`);
     }
+    // Everything the app does to a milestone finds it by id, so two with one id
+    // would be started, finished and deleted together.
+    if (!item.id.trim() || seenIds.has(item.id)) {
+      throw new ApiError('invalid_response', `Roadmap task at index ${index} had a blank or repeated id.`);
+    }
+    seenIds.add(item.id);
+    if (!item.title.trim()) {
+      throw new ApiError('invalid_response', `Roadmap task at index ${index} had a blank title.`);
+    }
     return {
       id: item.id,
-      title: item.title,
+      title: item.title.trim(),
       doneWhen: typeof item.doneWhen === 'string' ? item.doneWhen : '',
       weight: typeof item.weight === 'number' && Number.isFinite(item.weight) && item.weight > 0 ? item.weight : 1,
       ...(typeof item.why === 'string' && item.why.trim() ? { why: item.why.trim() } : {}),
@@ -238,15 +301,21 @@ export const generateRoadmap = async (input: GenerateRoadmapInput): Promise<Road
   }
 
   // Level is separate from the candidate's evidence; never mutate their experience.
-  const title = resolveRoleTitle(input.roleId, input.customTitle);
+  const title = prepareOutgoingText(resolveRoleTitle(input.roleId, input.customTitle), MAX_ROLE_TITLE_LENGTH).trim();
+  const experience = prepareOutgoingText(input.experience, MAX_EXPERIENCE_LENGTH).trim();
+  const employer = input.employer ? prepareOutgoingText(input.employer, MAX_EMPLOYER_LENGTH).trim() : '';
+  // The backend requires both; saying so here saves a round trip that would only fail.
+  if (!title || !experience) {
+    throw new ApiError('invalid_input', 'Role title or experience was empty after removing unsupported characters.');
+  }
   const id = backendRoleId(input.roleId);
   const body = {
-    experience: input.experience.slice(0, MAX_EXPERIENCE_LENGTH),
+    experience,
     level: input.level,
     targetRole: {
       ...(id ? { id } : {}),
       title,
-      ...(input.employer ? { employer: input.employer } : {}),
+      ...(employer ? { employer } : {}),
     },
   };
   const raw = await requestJson('/api/roadmap', body, ROADMAP_TIMEOUT_MS);
@@ -269,10 +338,18 @@ export const generateCvBullet = async (input: GenerateCvBulletInput): Promise<Cv
   // normalizeCvBulletInput takes { taskTitle, notes, targetRole?,
   // targetIndustry? }. Our roleTitle is its targetRole; level has no slot and
   // is not sent.
+  const taskTitle = prepareOutgoingText(input.taskTitle, MAX_TASK_TITLE_LENGTH).trim();
+  const notes = prepareOutgoingText(input.notes, MAX_NOTES_LENGTH).trim();
+  // Both are required. An empty one (a milestone that no longer exists, notes
+  // that were only invisible characters) would be refused, so don't spend a call on it.
+  if (!taskTitle || !notes) {
+    throw new ApiError('invalid_input', 'Milestone title or notes were empty after removing unsupported characters.');
+  }
+  const roleTitle = input.roleTitle ? prepareOutgoingText(input.roleTitle, MAX_TARGET_ROLE_LENGTH).trim() : '';
   const body = {
-    taskTitle: input.taskTitle,
-    notes: input.notes,
-    ...(input.roleTitle ? { targetRole: input.roleTitle.slice(0, MAX_TARGET_ROLE_LENGTH) } : {}),
+    taskTitle,
+    notes,
+    ...(roleTitle ? { targetRole: roleTitle } : {}),
   };
   const raw = await requestJson('/api/cv-bullet', body, CV_BULLET_TIMEOUT_MS);
   return mapCvBulletResponse(raw);
@@ -1253,4 +1330,105 @@ const mockExtractProfile = async (roleId: string | undefined): Promise<ExtractPr
 
   const experienceText = (roleId && MOCK_CV_SUMMARIES_BY_ROLE_ID[roleId]) || GENERIC_MOCK_CV_SUMMARY;
   return { experienceText, questions: [] };
+};
+
+export type SyncHttpResult = { kind: 'ok'; body: unknown } | { kind: 'conflict'; body: unknown };
+export type SyncMethod = 'GET' | 'PUT' | 'DELETE';
+
+export interface SyncRequestOptions {
+  /**
+   * Send this Firebase ID token instead of the device session's. The account
+   * flow uses it to read a cloud copy before deciding whether to adopt that
+   * account's session at all.
+   */
+  idToken?: string;
+}
+
+/**
+ * GET or PUT /api/sync (docs/sync-contract.md). Unlike the AI routes there is
+ * no AI-consent gate — nothing here reaches Gemini — and a 409 is returned
+ * rather than thrown, because its body carries the server's snapshot for the
+ * caller to merge. Callers check for a linked account first; this function
+ * does not, so it never decides on its own to touch the network.
+ */
+export const requestSync = async (
+  method: SyncMethod,
+  body?: unknown,
+  options: SyncRequestOptions = {},
+): Promise<SyncHttpResult> => {
+  const json = method === 'PUT' ? JSON.stringify(body) : undefined;
+  if (json !== undefined && utf8Length(json) > SYNC_MAX_BODY_BYTES) {
+    // Refused before the network: the server would only refuse it too.
+    throw new ApiError('invalid_response', 'Snapshot exceeds 900 KB.', 'SYNC_PAYLOAD_TOO_LARGE');
+  }
+
+  if (isMockMode()) {
+    const failure = mockFailureKind();
+    if (failure) {
+      throw new ApiError(failure, `Mock ${failure} failure.`);
+    }
+    await delay(150);
+    // Keyed by the account, as the real backend is. A revoked token is a 401.
+    const uid = options.idToken
+      ? mockAuthBackend.uidForToken(options.idToken)
+      : mockAuthBackend.uidForToken(await mockAuthBackend.currentIdToken());
+    if (!uid) throw new ApiError('auth', 'Authentication is required', 'AUTHENTICATION_REQUIRED');
+    const server = mockSyncServerFor(uid);
+    if (method === 'DELETE') {
+      server.delete();
+      mockAuthBackend.deleteUser(uid);
+      return { kind: 'ok', body: {} };
+    }
+    const response = method === 'GET' ? server.get() : server.put(json ?? '');
+    if (response.status === 200) return { kind: 'ok', body: response.body };
+    if (response.status === 409) return { kind: 'conflict', body: response.body };
+    throw errorFromBody(response.status, response.body);
+  }
+
+  const baseUrl = requireBaseUrl();
+  let appCheckToken: string;
+  try {
+    appCheckToken = await getAppCheckToken();
+  } catch {
+    throw new ApiError('auth', 'App verification failed. Use a configured development or store build.');
+  }
+  const token = options.idToken ?? (await getAuthToken());
+  if (!token) throw new ApiError('auth', 'Unable to authenticate. Check your connection and Firebase configuration.');
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), SYNC_TIMEOUT_MS);
+  try {
+    const response = await fetch(`${baseUrl}/api/sync`, {
+      method,
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'X-Firebase-AppCheck': appCheckToken,
+        ...(json === undefined ? {} : { 'Content-Type': 'application/json' }),
+      },
+      ...(json === undefined ? {} : { body: json }),
+      signal: controller.signal,
+    });
+    if (response.status === 409) {
+      try {
+        return { kind: 'conflict', body: await response.json() };
+      } catch (error) {
+        if (isAbortError(error)) throw error;
+        throw new ApiError('invalid_response', 'Conflict response was not valid JSON.');
+      }
+    }
+    if (!response.ok) throw await readErrorResponse(response);
+    // DELETE answers 204 with no body; nothing to parse.
+    if (method === 'DELETE') return { kind: 'ok', body: {} };
+    try {
+      return { kind: 'ok', body: await response.json() };
+    } catch (error) {
+      if (isAbortError(error)) throw error;
+      throw new ApiError('invalid_response', 'Response was not valid JSON.');
+    }
+  } catch (error) {
+    if (error instanceof ApiError) throw error;
+    throw new ApiError('network', isAbortError(error) ? 'Request timed out.' : 'Network request failed.');
+  } finally {
+    clearTimeout(timeout);
+  }
 };
