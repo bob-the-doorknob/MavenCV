@@ -16,10 +16,11 @@ The idea: warm paper, near-black ink, and a single ember-orange accent that is s
 | `surface` | `#FFFFFF` | Cards, inputs, sheets |
 | `textPrimary` (ink) | `#15171B` | Body and title text, primary buttons |
 | `textSecondary` | `#5C584F` | Supporting copy |
-| `textMuted` | `#6B665C` | Section labels, counters, meta |
-| `border` | `#E6E2D8` | Card, input, and chip borders |
+| `textMuted` | `#6B665C` | Section labels, counters, meta (dark mode `#8C8982`, for 4.5:1 on surface) |
+| `border` | `#E6E2D8` | Card and chip borders: separation only |
+| `inputBorder` | `#9C8C65` | Outline of a text field or text area — see below |
 | `divider` | `#EEEBE3` | Hairline separators inside a surface |
-| `node` | `#CFCBC2` | Inactive milestone node ring, untravelled path |
+| `node` | `#958C78` | Inactive milestone node ring, untravelled path (3:1 on paper and surface) |
 | `track` | `#D9D4C9` | Unfilled progress bar and arc |
 | `accent` | `#FF6B2C` | Progress only — see §4 |
 | `accentMuted` | `#FFE9DF` | Soft accent wash |
@@ -41,7 +42,11 @@ The dark header is a fixed surface, not a themed one — it is dark in both ligh
 
 ### Dark mode
 
-Background `#111214`, surface `#1A1C1F`, light text (`#F6F4EE` primary, `#A8A49B` secondary), same accent `#FF6B2C`. Borders, dividers, nodes, and tracks are the dark equivalents in `tokens.ts`.
+Background `#111214`, surface `#1A1C1F`, light text (`#F6F4EE` primary, `#A8A49B` secondary), same accent `#FF6B2C`. Borders, dividers, nodes, and tracks are the dark equivalents in `tokens.ts` (`inputBorder` `#626772`, `node` `#626773`).
+
+### Input outlines
+
+A field's outline is the only thing that shows where it is, so it gets its own token. `inputBorder` is used by `TextField` and `TextArea` and must reach **3:1** against the surface the field sits on, in light and in dark (WCAG 1.4.11). `border` stays pale and is for separating cards and chips from the page; do not use it to outline an input. Dividers are unchanged. Chips and secondary buttons keep `border` because their text label, not the outline, identifies them.
 
 ### Category tints (chips)
 
@@ -62,10 +67,12 @@ Read them through `categoryTints[mode][category]` or the `useCategoryTint` hook.
 
 Accent (`#FF6B2C`) is **only** for progress towards readiness:
 
-- the readiness score number
+- the readiness score number, **only on the dark header block** (6.2:1)
 - the score arc fill, and progress bars that report progress towards readiness
 - done nodes, their checkmarks, and the in-progress ring
 - the part of the milestone path already travelled
+
+**The score number is ink on paper.** Accent on paper or a surface is only 2.6–2.8:1, below the 3:1 a large number needs, and the track colour is too close to it to carry the arc alone. So wherever the score number is drawn directly on paper or a card (`ScoreArc` with `variant="onSurface"`: the "Interview ready" card, and the gallery), it is `textPrimary`; the arc keeps the accent. On the dark header block the number is accent. Progress fills still use accent against their track (a known, accepted 1.9:1 — the fill's length and the number beside it carry the value, not its colour).
 
 Everything else is paper, ink, and borders. In particular, accent is **not** for
 states, warnings or time pressure:

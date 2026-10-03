@@ -12,7 +12,7 @@ import { RootNavigator } from './src/navigation/RootNavigator';
 import { configureRevenueCat } from './src/services/revenueCat';
 import { loadAccountState } from './src/services/accountState';
 import { startSync } from './src/services/sync';
-import { useAppStore, useStorageStatus } from './src/store/useAppStore';
+import { useStorageStatus } from './src/store/useAppStore';
 import type { Theme } from './src/theme/tokens';
 import { useAppFonts } from './src/theme/fonts';
 import { useTheme } from './src/theme/useTheme';
