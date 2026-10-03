@@ -1,0 +1,9 @@
+case_id,prompt_version,run_date,milestone_index,milestone_title,estimated_weeks,M1_artifact,M2_measurable,M3_achievable,M4_role_specific,M5_not_duplicate,M6_weeks,M7_steps,M8_no_invented_facts,R1_order,R2_level_fit,R3_coverage,R4_format,milestone_score,failure_type,reviewer,notes
+backend-cloud-internship-b,v1,YYYY-MM-DD,1,Implement 20 integration tests for your existing CI pipeline,2,1,1,1,1,1,1,1,0,1,1,1,1,7,invented_fact,EXAMPLE,"EXAMPLE ROW, delete before use. M8: ""your existing CI pipeline"" - profile mentions no CI."
+software-engineer-internship-a,,,1,,,,,,,,,,,,,,,,,,
+software-engineer-internship-a,,,2,,,,,,,,,,,,,,,,,,
+software-engineer-internship-a,,,3,,,,,,,,,,,,,,,,,,
+software-engineer-internship-a,,,4,,,,,,,,,,,,,,,,,,
+software-engineer-internship-a,,,5,,,,,,,,,,,,,,,,,,
+software-engineer-internship-a,,,6,,,,,,,,,,,,,,,,,,
+software-engineer-internship-a,,,7,,,,,,,,,,,,,,,,,,
