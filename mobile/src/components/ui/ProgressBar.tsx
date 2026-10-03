@@ -21,10 +21,12 @@ interface ProgressBarProps {
    * (DESIGN.md §2), so a bar measuring anything else passes a neutral here.
    */
   fillColor?: string;
+  /** What the bar measures, spoken before its value, e.g. "1 of 3 steps done". */
+  accessibilityLabel?: string;
   style?: StyleProp<ViewStyle>;
 }
 
-export function ProgressBar({ value, height = 10, trackColor, fillColor, style }: ProgressBarProps) {
+export function ProgressBar({ value, height = 10, trackColor, fillColor, accessibilityLabel, style }: ProgressBarProps) {
   const theme = useTheme();
   const styles = useMemo(() => createStyles(theme), [theme]);
   const reducedMotion = useReducedMotion();
@@ -41,6 +43,7 @@ export function ProgressBar({ value, height = 10, trackColor, fillColor, style }
 
   return (
     <Animated.View
+      {...(accessibilityLabel ? { accessibilityLabel } : {})}
       accessibilityRole="progressbar"
       accessibilityValue={{ min: 0, max: 100, now: Math.round(clamped) }}
       style={[

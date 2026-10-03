@@ -14,6 +14,7 @@ import { minTouchTarget, spacing, typography, type Theme } from '../../theme/tok
 import { useTheme } from '../../theme/useTheme';
 import { buildJourney, journeySummary, type JourneyEntry } from '../../utils/journey';
 import { calculateStreak, completionTimestamps } from '../../utils/streak';
+import { spokenStat } from '../../utils/spokenText';
 import { formatDueDate, formatMonthYear } from '../../utils/targetDate';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
@@ -96,7 +97,8 @@ function SummaryStat({ label, value }: { label: string; value: string }) {
   const styles = useMemo(() => createStyles(theme), [theme]);
 
   return (
-    <View style={styles.stat}>
+    // One phrase for the reader ("2 week streak"), not a bare number then a label.
+    <View accessibilityLabel={spokenStat(value, label)} accessible style={styles.stat}>
       <Text style={styles.statValue}>{value}</Text>
       <Text style={styles.statLabel}>{label}</Text>
     </View>

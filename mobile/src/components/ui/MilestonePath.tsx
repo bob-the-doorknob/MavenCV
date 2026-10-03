@@ -14,6 +14,7 @@ import type { TaskStatus } from '../../types';
 import { CategoryChip } from './CategoryChip';
 import { StatusNode } from './StatusNode';
 import { usePressScale } from './usePressScale';
+import { REORDER_HINT, spokenMilestone } from '../../utils/spokenText';
 
 export interface MilestoneItem {
   id: string;
@@ -77,6 +78,12 @@ export interface MilestoneRowProps {
   isDragging?: boolean;
   /** Changing this replays the node's completion pop. */
   pulseKey?: string | undefined;
+  /**
+   * Screen-reader alternative to drag-to-reorder: offered as the row's
+   * "Move up" / "Move down" accessibility actions. Omit at the top or bottom.
+   */
+  onMoveUp?: (() => void) | undefined;
+  onMoveDown?: (() => void) | undefined;
 }
 
 /**
@@ -99,6 +106,8 @@ export function MilestoneRow({
   onLongPress,
   isDragging = false,
   pulseKey,
+  onMoveUp,
+  onMoveDown,
 }: MilestoneRowProps) {
   const theme = useTheme();
   const styles = useMemo(() => createStyles(theme), [theme]);
@@ -182,7 +191,9 @@ export function MilestoneRow({
         </View>
         {/* The completion haptic comes from the mark-done sheet, so the node
             pops silently rather than buzzing a second time. */}
+        {/* The row's own label already says the status; the node is decoration to a reader. */}
         <StatusNode
+          accessibilityHidden
           backgroundColor={theme.colors.background}
           haptics={false}
           pulseKey={pulseKey}
@@ -192,9 +203,17 @@ export function MilestoneRow({
       {onPress ? (
         <Animated.View style={[styles.contentWrapper, press.style, liftStyle]}>
           <Pressable
-            accessibilityHint={onLongPress ? 'Long press to reorder' : undefined}
-            accessibilityLabel={item.meta ? `${item.title}. ${item.meta}` : item.title}
+            accessibilityActions={[
+              ...(onMoveUp ? [{ name: 'moveUp', label: 'Move up' }] : []),
+              ...(onMoveDown ? [{ name: 'moveDown', label: 'Move down' }] : []),
+            ]}
+            accessibilityHint={onMoveUp || onMoveDown ? REORDER_HINT : undefined}
+            accessibilityLabel={spokenMilestone({ ...item, isCurrent })}
             accessibilityRole="button"
+            onAccessibilityAction={(event) => {
+              if (event.nativeEvent.actionName === 'moveUp') onMoveUp?.();
+              if (event.nativeEvent.actionName === 'moveDown') onMoveDown?.();
+            }}
             android_ripple={{ color: theme.colors.border }}
             delayLongPress={220}
             onLongPress={onLongPress}

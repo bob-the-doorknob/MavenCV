@@ -210,7 +210,7 @@ export function AboutYouScreen({
     <KeyboardAvoidingView behavior={Platform.OS === 'android' ? 'height' : 'padding'} style={styles.flex}>
       <View style={[styles.screen, { paddingTop: insets.top }]}>
         <ScrollView
-          contentContainerStyle={[styles.content, { paddingBottom: insets.bottom }]}
+          contentContainerStyle={styles.content}
           keyboardDismissMode="on-drag"
           keyboardShouldPersistTaps="handled"
         >
@@ -282,6 +282,7 @@ export function AboutYouScreen({
                 ) : null}
 
                 <ProgressBar
+                  accessibilityLabel="How much experience you have described"
                   fillColor={theme.colors.textMuted}
                   height={6}
                   value={feedback.progressToRecommended * 100}
@@ -313,7 +314,7 @@ export function AboutYouScreen({
           </View>
         </ScrollView>
 
-        <View style={[styles.footer, { paddingBottom: insets.bottom }]}>
+        <View style={[styles.footer, { paddingBottom: insets.bottom + spacing.lg }]}>
           <Text style={styles.stepMeta}>Step 2 of 3</Text>
           <Button label="Continue" onPress={onContinue} disabled={!canContinue || !acceptedAt} />
         </View>

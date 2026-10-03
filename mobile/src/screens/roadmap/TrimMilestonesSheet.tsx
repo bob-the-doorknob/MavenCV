@@ -108,7 +108,7 @@ function TrimRow({
           status={selected ? 'done' : 'not_started'}
         />
         <View style={styles.rowCopy}>
-          <Text numberOfLines={2} style={styles.rowTitle}>
+          <Text style={styles.rowTitle}>
             {task.title}
           </Text>
           <Text style={styles.rowMeta}>~{clampEstimatedWeeks(task.estimatedWeeks)} weeks</Text>
@@ -126,7 +126,9 @@ const createStyles = (theme: Theme) =>
       fontSize: typography.body.fontSize,
       lineHeight: typography.body.lineHeight,
     },
+    // Shrinks on a short screen or at a large text size, so the buttons below stay on screen.
     list: {
+      flexShrink: 1,
       maxHeight: 300,
     },
     row: {

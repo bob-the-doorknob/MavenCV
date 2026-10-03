@@ -137,7 +137,8 @@ export const scheduleLabel = (
   if (!task.targetDate || status === 'none') {
     return { text: `~${clampEstimatedWeeks(task.estimatedWeeks)} weeks`, status: 'none' };
   }
-  return { text: `Due ${formatDate(task.targetDate)}`, status };
+  // "Was due" says overdue in words; on screen the danger colour is only the second cue.
+  return { text: `${status === 'overdue' ? 'Was due' : 'Due'} ${formatDate(task.targetDate)}`, status };
 };
 
 export const scheduleStatus = (task: RoadmapTask, now: number): ScheduleStatus => {

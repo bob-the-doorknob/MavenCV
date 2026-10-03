@@ -23,6 +23,7 @@ import { minTouchTarget, radii, spacing, typography, type Theme } from '../../th
 import { useTheme } from '../../theme/useTheme';
 import { countSteps, priorityLabels } from '../../utils/groupTasks';
 import { clampEstimatedWeeks, scheduleLabel } from '../../utils/schedule';
+import { spokenSteps } from '../../utils/spokenText';
 import { formatDueDate } from '../../utils/targetDate';
 import type { CvEntry, TaskStatus } from '../../types';
 import { EditTaskSheet } from './EditTaskSheet';
@@ -159,6 +160,8 @@ export function TaskDetailScreen() {
       </View>
 
       <ScrollView
+        // iOS: keeps the "Add a step" field above the keyboard.
+        automaticallyAdjustKeyboardInsets
         contentContainerStyle={styles.content}
         keyboardDismissMode="on-drag"
         keyboardShouldPersistTaps="handled"
@@ -203,7 +206,11 @@ export function TaskDetailScreen() {
             <Text style={styles.stepCount}>
               {steps.done} of {steps.total} steps
             </Text>
-            <ProgressBar height={8} value={(steps.done / steps.total) * 100} />
+            <ProgressBar
+              accessibilityLabel={spokenSteps(steps.done, steps.total)}
+              height={8}
+              value={(steps.done / steps.total) * 100}
+            />
             <Text style={styles.stepNote}>Steps don&apos;t change your score</Text>
           </View>
         ) : null}
@@ -463,7 +470,7 @@ function StepMoveButton({
       accessibilityRole="button"
       accessibilityState={{ disabled }}
       disabled={disabled}
-      hitSlop={6}
+      hitSlop={8}
       onPress={onPress}
       style={[styles.stepMove, disabled && styles.stepMoveDisabled]}
     >

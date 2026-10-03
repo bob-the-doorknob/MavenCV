@@ -13,6 +13,12 @@ export interface ThemeColors {
   surface: string;
   surfaceRaised: string;
   border: string;
+  /**
+   * The outline of an input (text field, text area). Unlike `border`, which
+   * only separates surfaces, this is the one thing that shows where a field
+   * is, so it must reach 3:1 against the surface it sits on (WCAG 1.4.11).
+   */
+  inputBorder: string;
   divider: string;
   textPrimary: string;
   textSecondary: string;
@@ -44,11 +50,12 @@ const lightColors: ThemeColors = {
   surface: '#FFFFFF',
   surfaceRaised: '#FFFFFF',
   border: '#E6E2D8',
+  inputBorder: '#9C8C65',
   divider: '#EEEBE3',
   textPrimary: '#15171B',
   textSecondary: '#5C584F',
   textMuted: '#6B665C',
-  node: '#CFCBC2',
+  node: '#958C78',
   track: '#D9D4C9',
   accent: '#FF6B2C',
   accentMuted: '#FFE9DF',
@@ -66,11 +73,12 @@ const darkColors: ThemeColors = {
   surface: '#1A1C1F',
   surfaceRaised: '#212327',
   border: '#2C2E33',
+  inputBorder: '#626772',
   divider: '#24262A',
   textPrimary: '#F6F4EE',
   textSecondary: '#A8A49B',
-  textMuted: '#85817A',
-  node: '#3A3D44',
+  textMuted: '#8C8982',
+  node: '#626773',
   track: '#2C2F36',
   accent: '#FF6B2C',
   accentMuted: '#3A2318',

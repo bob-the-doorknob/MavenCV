@@ -63,13 +63,15 @@ export const createMockGoogleProvider = (options: MockGoogleOptions = {}): Googl
   const email = options.email ?? 'student@example.com';
   const provider = {
     isAvailable: () => true,
-    signIn: async () => {
-      if (options.cancel) throw new GoogleSignInCancelled();
+    // Not `async`: nothing here awaits. They return promises because the interface does.
+    signIn: () => {
+      if (options.cancel) return Promise.reject(new GoogleSignInCancelled());
       signedIn = true;
-      return { idToken: mockGoogleIdToken(sub, email), email };
+      return Promise.resolve({ idToken: mockGoogleIdToken(sub, email), email });
     },
-    signOut: async () => {
+    signOut: () => {
       signedIn = false;
+      return Promise.resolve();
     },
     signedIn: () => signedIn,
   };

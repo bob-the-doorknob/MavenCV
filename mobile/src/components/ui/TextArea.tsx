@@ -62,7 +62,7 @@ const createStyles = (theme: Theme) =>
     },
     input: {
       backgroundColor: theme.colors.surface,
-      borderColor: theme.colors.border,
+      borderColor: theme.colors.inputBorder,
       borderRadius: radii.md,
       borderWidth: 1,
       color: theme.colors.textPrimary,

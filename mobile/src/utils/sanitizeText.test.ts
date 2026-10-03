@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { prepareOutgoingText, sanitizeText, truncateText } from './sanitizeText';
 
 /** The exact set the backend refuses (backend/src/services/roadmap.ts). */
+// eslint-disable-next-line no-control-regex -- control characters are exactly what this check rejects
 const BACKEND_CONTROL = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/u;
 
 describe('sanitizeText', () => {

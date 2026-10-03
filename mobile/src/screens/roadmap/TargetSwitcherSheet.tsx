@@ -112,7 +112,7 @@ function TargetRow({
   return (
     <Animated.View style={press.style}>
       <Pressable
-        accessibilityLabel={`${title}. ${levelLabels[target.level]}. ${readiness}% ready.`}
+        accessibilityLabel={`${title}. ${levelLabels[target.level]}. ${readiness} percent ready.`}
         accessibilityRole="button"
         accessibilityState={{ selected: isActive }}
         android_ripple={{ color: theme.colors.border }}

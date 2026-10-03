@@ -32,6 +32,7 @@ export function BrandSplash({ message, isError = false, scrollable = false, chil
   const content = (
     <>
       <View style={styles.brand}>
+        {/* eslint-disable-next-line @typescript-eslint/no-require-imports -- Metro bundles a local image only through require() */}
         <Image accessibilityIgnoresInvertColors source={require('../../assets/maven-mark.png')} style={styles.mark} />
         {/* The wordmark is the logo, not reading text: capped so it cannot crowd out the message. */}
         <Text maxFontSizeMultiplier={1.2} style={styles.wordmark}>

@@ -13,6 +13,7 @@ import Svg, { Path } from 'react-native-svg';
 import { headerColors, motion, spacing, typography, type Theme } from '../../theme/tokens';
 import { arcGeometry, STROKE_WIDTH } from './scoreArcGeometry';
 import { useTheme } from '../../theme/useTheme';
+import { spokenScore } from '../../utils/spokenText';
 
 const AnimatedPath = Animated.createAnimatedComponent(Path);
 
@@ -61,10 +62,14 @@ export function ScoreArc({ value, label = 'Interview readiness', size = 220, var
 
   const trackColor = variant === 'onDark' ? headerColors.track : theme.colors.track;
   const labelColor = variant === 'onDark' ? headerColors.textSecondary : theme.colors.textSecondary;
+  // Accent on paper is 2.6-2.8:1, under the 3:1 a large number needs. Only the dark
+  // header block (6.2:1) carries the number in accent; on paper it is ink, and the
+  // arc keeps the accent. See DESIGN.md §2.
+  const scoreColor = variant === 'onDark' ? theme.colors.accent : theme.colors.textPrimary;
 
   return (
     <View
-      accessibilityLabel={label}
+      accessibilityLabel={spokenScore(clamped, label)}
       accessibilityRole="progressbar"
       accessibilityValue={{ min: 0, max: 100, now: Math.round(clamped) }}
       style={[styles.container, { width: size }]}
@@ -88,10 +93,15 @@ export function ScoreArc({ value, label = 'Interview readiness', size = 220, var
         />
       </Svg>
       <View style={[styles.readout, { marginTop: geometry.readoutOffset }]}>
+        {/* Sized to fit inside the arc, which does not grow with the system text
+            size; capped so a large setting cannot push it over the stroke. The
+            value is still read out in full through accessibilityValue. */}
         <Text
+          maxFontSizeMultiplier={1.2}
           style={[
             styles.score,
             {
+              color: scoreColor,
               fontSize: geometry.scoreFontSize,
               letterSpacing: geometry.scoreLetterSpacing,
               lineHeight: geometry.scoreLineHeight,

@@ -29,6 +29,8 @@ interface StatusNodeProps {
    * the user could not see, so the animation lands when they arrive.
    */
   pulseKey?: string | undefined;
+  /** Hide from screen readers when a parent already speaks the status. */
+  accessibilityHidden?: boolean;
 }
 
 const statusLabels: Readonly<Record<TaskStatus, string>> = {
@@ -43,6 +45,7 @@ export function StatusNode({
   backgroundColor,
   haptics = true,
   pulseKey,
+  accessibilityHidden = false,
 }: StatusNodeProps) {
   const theme = useTheme();
   const styles = useMemo(() => createStyles(theme), [theme]);
@@ -75,8 +78,10 @@ export function StatusNode({
 
   return (
     <Animated.View
+      accessibilityElementsHidden={accessibilityHidden}
       accessibilityLabel={statusLabels[status]}
       accessibilityRole="image"
+      importantForAccessibility={accessibilityHidden ? 'no-hide-descendants' : 'auto'}
       style={[styles.node, shape, { backgroundColor: fill }, popStyle]}
     >
       {status === 'done' ? (

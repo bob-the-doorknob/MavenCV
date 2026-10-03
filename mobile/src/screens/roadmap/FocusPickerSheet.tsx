@@ -103,7 +103,7 @@ function FocusRow({ task, selected, disabled, onPress }: FocusRowProps) {
           backgroundColor={theme.colors.surface}
           status={selected ? 'done' : 'not_started'}
         />
-        <Text numberOfLines={2} style={styles.rowTitle}>
+        <Text style={styles.rowTitle}>
           {task.title}
         </Text>
       </Pressable>
@@ -119,7 +119,9 @@ const createStyles = (theme: Theme) =>
       fontSize: typography.caption.fontSize,
       lineHeight: typography.caption.lineHeight,
     },
+    // Shrinks on a short screen or at a large text size, so the buttons below stay on screen.
     list: {
+      flexShrink: 1,
       maxHeight: 320,
     },
     row: {

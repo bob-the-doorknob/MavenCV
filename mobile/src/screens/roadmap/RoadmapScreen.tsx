@@ -34,6 +34,7 @@ import { useTheme } from '../../theme/useTheme';
 import { countSteps, orderRoadmap, sortMilestones, taskMetaLine } from '../../utils/groupTasks';
 import { atLimit, limitMessage } from '../../utils/limits';
 import { categoryKeyForRole } from '../../utils/roleCategory';
+import { moveId, spokenScore } from '../../utils/spokenText';
 import { fits, overdueSummary, scheduleLabel } from '../../utils/schedule';
 import type { PaywallTrigger } from '../../utils/paywallCopy';
 import { formatDueDate, formatMonthYear, formatWeeksLeft } from '../../utils/targetDate';
@@ -51,6 +52,9 @@ type Navigation = NativeStackNavigationProp<RootStackParamList>;
 
 /** Long enough to notice and reach, short enough not to linger. */
 const UNDO_DURATION_MS = 6_000;
+
+/** One shared empty roadmap, so a missing target does not make a new array (and re-run the memos below) every render. */
+const NO_TASKS: readonly RoadmapTask[] = [];
 
 const SORT_OPTIONS: ReadonlyArray<{ value: MilestoneSort; label: string }> = [
   { value: 'roadmap', label: 'Roadmap order' },
@@ -150,7 +154,7 @@ export function RoadmapScreen() {
   const [trimVisible, setTrimVisible] = useState(false);
   const [misfit, setMisfit] = useState<{ neededWeeks: number; availableWeeks: number } | null>(null);
 
-  const roadmap = target?.roadmap ?? [];
+  const roadmap = target?.roadmap ?? NO_TASKS;
   const ordered = useMemo(() => orderRoadmap(roadmap), [roadmap]);
   const sort = target?.milestoneSort ?? 'roadmap';
   // Sorting is a view: the stored order never changes, so dragging is only
@@ -244,6 +248,10 @@ export function RoadmapScreen() {
     useAppStore.getState().markReadyCelebrated();
   }, [isReady, hasCelebrated]);
 
+  const moveMilestone = (id: string, offset: -1 | 1): void => {
+    useAppStore.getState().reorderTasks(moveId(milestones.map((milestone) => milestone.id), id, offset));
+  };
+
   const renderMilestone = ({ item, getIndex, drag, isActive }: RenderItemParams<MilestoneItem>) => {
     // Indices shift while a drag is in flight, so the rail is derived from the
     // list's live index rather than a captured one.
@@ -263,6 +271,9 @@ export function RoadmapScreen() {
           item={item}
           onPress={() => openTask(item.id)}
           {...(canReorder ? { onLongPress: drag } : {})}
+          // The screen-reader way to reorder, since a long-press drag is not reachable by swipe.
+          {...(canReorder && index > 0 ? { onMoveUp: () => moveMilestone(item.id, -1) } : {})}
+          {...(canReorder && index < milestones.length - 1 ? { onMoveDown: () => moveMilestone(item.id, 1) } : {})}
           // Replays the pop for a task completed on the screen above this one.
           pulseKey={completedTaskId === item.id ? completedTaskId : undefined}
           travelledIndex={travelledIndex}
@@ -294,7 +305,7 @@ export function RoadmapScreen() {
             onPress={() => setTargetsVisible(true)}
             style={styles.roleTitleTarget}
           >
-            <Text numberOfLines={2} style={styles.roleTitle}>
+            <Text style={styles.roleTitle}>
               {target ? resolveRoleTitle(target.roleId, target.customTitle) : 'No target role'}
             </Text>
             {target ? (
@@ -319,7 +330,7 @@ export function RoadmapScreen() {
           {/* The score is the thing being explained, so it is the thing you
               tap — the header no longer needs a separate link. */}
           <Pressable
-            accessibilityLabel={`${target ? SCORE_LABELS[target.level] : 'ready'}. How is this scored?`}
+            accessibilityLabel={`${spokenScore(readiness, target ? SCORE_LABELS[target.level] : 'ready', ordered.doneCount, ordered.totalCount)}. How is this scored?`}
             accessibilityRole="button"
             accessibilityValue={{ min: 0, max: 100, now: readiness }}
             onPress={() => setScoringVisible(true)}

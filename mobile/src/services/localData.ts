@@ -6,9 +6,13 @@ import {
   RECOVERY_KEY,
   STORAGE_KEY,
   STORE_VERSION,
+  migrate,
+  stampChanges,
   useAppStore,
   useStorageStatus,
 } from '../store/useAppStore';
+import { generateTestData } from '../utils/testData';
+import { isLinkedAccount } from './syncAccount';
 
 /**
  * Everything about this device's saved data that is not the live store: the
@@ -91,6 +95,45 @@ export const devCorruptionAvailable = (): boolean => typeof __DEV__ !== 'undefin
 export const corruptSavedData = async (): Promise<void> => {
   if (!devCorruptionAvailable()) throw new Error('Corrupting saved data is only available in development builds.');
   await AsyncStorage.setItem(STORAGE_KEY, '{"state": corrupted on purpose by the dev tool');
+};
+
+/** The "Load test data (dev)" row: the same guard as the corruption tool. */
+export const devTestDataAvailable = (): boolean => devCorruptionAvailable();
+
+/**
+ * Dev tool: replaces the live data with generated data (utils/testData.ts).
+ * It goes through the same path as a real change: the generated records are
+ * run through load-time normalisation (`migrate`), then `stampChanges` — so
+ * they get monotonic `updatedAt` stamps, the replaced records leave
+ * tombstones, and the change is marked dirty — and the result is written by
+ * the store's own persistence. It never writes a storage key itself, and
+ * never touches the recovery or pre-migration copies.
+ *
+ * Refused for a linked account: syncing would push 500 test bullets into the
+ * real account and tombstone its data everywhere.
+ */
+export const loadTestData = (now: number = Date.now()): void => {
+  if (!devTestDataAvailable()) throw new Error('Test data is only available in development builds.');
+  if (isLinkedAccount()) throw new Error('Sign out before loading test data; it would sync into your account.');
+  const generated = generateTestData(now, now.toString(36));
+  const normalised = migrate({
+    targets: generated.targets,
+    activeTargetId: generated.targets[0]?.id ?? null,
+    cvEntries: generated.cvEntries,
+  });
+  const store = useAppStore.getState();
+  if (store.pendingUndo) store.clearPendingUndo();
+  const patch = stampChanges(
+    useAppStore.getState(),
+    {
+      targets: normalised.targets,
+      cvEntries: normalised.cvEntries,
+      activeTargetId: normalised.activeTargetId,
+      onboardingDraft: null,
+    },
+    now,
+  );
+  useAppStore.setState(patch);
 };
 
 /** What "Export" shares when a save failed: the in-memory data that did not reach storage. */

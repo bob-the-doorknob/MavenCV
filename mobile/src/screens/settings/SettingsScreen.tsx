@@ -24,7 +24,13 @@ import {
 } from '../../services/account';
 import { loadAccountState, useAccountState } from '../../services/accountState';
 import { getGoogleProvider } from '../../services/googleCredential';
-import { corruptSavedData, devCorruptionAvailable, resetThisDevice } from '../../services/localData';
+import {
+  corruptSavedData,
+  devCorruptionAvailable,
+  devTestDataAvailable,
+  loadTestData,
+  resetThisDevice,
+} from '../../services/localData';
 import { signOutAndClear } from '../../services/signOut';
 import { onAccountLinked, onForeground, useSyncStatus } from '../../services/sync';
 import {
@@ -40,6 +46,7 @@ import { minTouchTarget, spacing, typography, type Theme } from '../../theme/tok
 import { useTheme } from '../../theme/useTheme';
 import { formatExportText } from '../../utils/exportText';
 import { formatMonthYear } from '../../utils/targetDate';
+import { devEnvironmentAvailable, environmentLines } from '../../utils/environmentInfo';
 import { syncStatusCopy } from '../../utils/syncStatusCopy';
 import { accountRowModel, accountUiVisibility } from '../../utils/accountVisibility';
 import { startConflictPrompt } from '../../utils/conflictPrompt';
@@ -299,6 +306,28 @@ export function SettingsScreen() {
     );
   };
 
+  // Development builds only: replaces this phone's data with generated data at scale.
+  const confirmLoadTestData = (): void => {
+    Alert.alert(
+      'Load test data?',
+      "Development only. This replaces this phone's roadmaps and CV bullets with generated data: 3 targets, one with 20 milestones of 10 steps, and 500 CV bullets. Your current data on this phone is removed.",
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Replace with test data',
+          style: 'destructive',
+          onPress: () => {
+            try {
+              loadTestData();
+            } catch (error) {
+              Alert.alert('Test data not loaded', error instanceof Error ? error.message : 'Please try again.');
+            }
+          },
+        },
+      ],
+    );
+  };
+
   // Development builds only: breaks the saved data on purpose to try the recovery screen.
   const confirmCorrupt = (): void => {
     Alert.alert(
@@ -472,6 +501,27 @@ export function SettingsScreen() {
                 onPress={confirmCorrupt}
                 subtitle="Development builds only. Overwrites the saved data with invalid data, then reloads."
                 title="Corrupt saved data (dev)"
+              />
+            ) : null}
+            {devTestDataAvailable() ? (
+              <SettingsRow
+                isDanger
+                isFirst={false}
+                onPress={confirmLoadTestData}
+                subtitle="Development builds only. Replaces this phone's data with 3 targets and 500 CV bullets."
+                title="Load test data (dev)"
+              />
+            ) : null}
+            {/* Display only: no press, no chevron. Device.isDevice is left out because expo-device is not installed. */}
+            {devEnvironmentAvailable() ? (
+              <SettingsRow
+                isFirst={false}
+                subtitle={environmentLines({
+                  executionEnvironment: Constants.executionEnvironment,
+                  appOwnership: Constants.appOwnership,
+                  appVersion: APP_VERSION,
+                }).join('\n')}
+                title="Environment (dev)"
               />
             ) : null}
           </Card>

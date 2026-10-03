@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import { Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useReducedMotion } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { radii, spacing, typography, type Theme } from '../../theme/tokens';
@@ -17,6 +18,7 @@ interface SheetProps {
 export function Sheet({ visible, onClose, title, children, scrollable = true }: SheetProps) {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
+  const reducedMotion = useReducedMotion();
   const styles = useMemo(() => createStyles(theme, insets.bottom), [theme, insets.bottom]);
   const dismissKeyboardOrClose = () => {
     if (Keyboard.isVisible()) {
@@ -27,13 +29,17 @@ export function Sheet({ visible, onClose, title, children, scrollable = true }: 
   };
   const panel = (
     <Pressable accessible={false} onPress={Keyboard.dismiss} style={styles.panel}>
-      {title ? <Text style={styles.title}>{title}</Text> : null}
+      {title ? (
+        <Text accessibilityRole="header" style={styles.title}>
+          {title}
+        </Text>
+      ) : null}
       {children}
     </Pressable>
   );
 
   return (
-    <Modal animationType="slide" onRequestClose={dismissKeyboardOrClose} transparent visible={visible}>
+    <Modal animationType={reducedMotion ? 'none' : 'slide'} onRequestClose={dismissKeyboardOrClose} transparent visible={visible}>
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.container}>
         <Pressable
           accessibilityLabel="Dismiss keyboard or close sheet"
@@ -78,7 +84,9 @@ const createStyles = (theme: Theme, bottomInset: number) =>
       flexGrow: 0,
       maxHeight: '90%',
     },
+    // flexShrink lets a non-scrolling sheet fit its 90% cap by shrinking its own list.
     panel: {
+      flexShrink: 1,
       gap: spacing.md,
       padding: spacing.xl,
       paddingBottom: spacing.xl + bottomInset,

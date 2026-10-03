@@ -61,7 +61,7 @@ export function RoleScreen({
     >
       <View style={[styles.screen, { paddingTop: insets.top }]}>
         <ScrollView
-          contentContainerStyle={[styles.content, { paddingBottom: insets.bottom }]}
+          contentContainerStyle={styles.content}
           keyboardDismissMode="on-drag"
           keyboardShouldPersistTaps="handled"
         >
@@ -115,7 +115,7 @@ export function RoleScreen({
           </View>
         </ScrollView>
 
-        <View style={[styles.footer, { paddingBottom: insets.bottom }]}>
+        <View style={[styles.footer, { paddingBottom: insets.bottom + spacing.lg }]}>
           <Text style={styles.stepMeta}>Step 1 of 3</Text>
           <Button label="Continue" onPress={onContinue} disabled={!canContinue} />
         </View>

@@ -44,7 +44,7 @@ export function ReadyByScreen({
 
   return (
     <View style={[styles.screen, { paddingTop: insets.top }]}>
-      <ScrollView contentContainerStyle={[styles.content, { paddingBottom: insets.bottom }]}>
+      <ScrollView contentContainerStyle={styles.content}>
         <View style={styles.headerBlock}>
           <Text style={styles.title}>When do you want to be ready?</Text>
           <Text style={styles.subtitle}>
@@ -56,7 +56,7 @@ export function ReadyByScreen({
         <DateRow onPress={() => setSheetVisible(true)} targetDate={targetDate} />
       </ScrollView>
 
-      <View style={[styles.footer, { paddingBottom: insets.bottom }]}>
+      <View style={[styles.footer, { paddingBottom: insets.bottom + spacing.lg }]}>
         <Text style={styles.stepMeta}>Step 3 of 3</Text>
         <Button
           disabled={targetDate === null}
