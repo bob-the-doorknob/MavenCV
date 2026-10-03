@@ -12,10 +12,18 @@
   "scripts": {
     "check:backend": "npm run typecheck --workspace @trajectory/backend && npm test --workspace @trajectory/backend",
     "typecheck": "npm run typecheck --workspaces --if-present",
+    "lint": "eslint mobile backend",
     "test": "npm run test --workspaces --if-present",
     "start:mobile": "npm run start --workspace @trajectory/mobile",
     "start:backend": "npm run dev --workspace @trajectory/backend",
     "smoke:backend": "powershell -NoProfile -ExecutionPolicy Bypass -File backend/scripts/smoke.ps1",
     "smoke:gemini": "node --env-file=.env --import tsx backend/scripts/smoke-gemini.ts"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.11.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "globals": "^17.13.0",
+    "typescript-eslint": "^8.71.0"
   }
 }
