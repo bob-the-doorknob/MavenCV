@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { findTargetRole } from '../data/targets.js';
 import { createGeminiJsonGenerator, GEMINI_MODEL, isProviderRateLimit, ProviderRateLimitError } from './gemini.js';
 
+// eslint-disable-next-line no-control-regex -- control characters are exactly what this check rejects
 const CONTROL_CHARACTERS = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/u;
 const VERB_OPTIONS = [
   'Build', 'Complete', 'Create', 'Deliver', 'Demonstrate', 'Deploy', 'Design',

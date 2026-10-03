@@ -65,7 +65,9 @@ export const normalizeCvProfileInput = (value: unknown): CvProfileInput => {
   let targetRole = 'targetRoleId' in value && typeof value.targetRoleId === 'string'
     ? findTargetRole(value.targetRoleId) : undefined;
   if (!('targetRoleId' in value) && 'targetRoleTitle' in value && typeof value.targetRoleTitle === 'string' &&
-      value.targetRoleTitle.trim() && value.targetRoleTitle.length <= 120 && !/[\u0000-\u001f\u007f]/u.test(value.targetRoleTitle)) {
+      value.targetRoleTitle.trim() && value.targetRoleTitle.length <= 120 &&
+      // eslint-disable-next-line no-control-regex -- control characters are exactly what this check rejects
+      !/[\u0000-\u001f\u007f]/u.test(value.targetRoleTitle)) {
     targetRole = { id: 'custom', title: value.targetRoleTitle.trim(), guidance: 'Extract relevant explicit career evidence.' } as TargetRoleDefinition;
   }
   if (!targetRole) throw new CvProfileValidationError('Unknown target role');
@@ -82,8 +84,10 @@ const parseResult = (text: string | undefined): CvProfileResult => {
     throw new CvProfileGenerationError('Invalid CV extraction');
   }
   const experience = value.experience.replace(/\s+/gu, ' ').trim();
+  // eslint-disable-next-line no-control-regex -- control characters are exactly what this check rejects
   if (!experience || experience.length > MAX_EXPERIENCE_LENGTH || /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/u.test(experience) ||
     value.questions.length > MAX_QUESTIONS || value.questions.some((question: unknown) =>
+      // eslint-disable-next-line no-control-regex -- control characters are exactly what this check rejects
       typeof question !== 'string' || !question.trim() || question.length > 160 || /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/u.test(question))) {
     throw new CvProfileGenerationError('Invalid CV extraction');
   }

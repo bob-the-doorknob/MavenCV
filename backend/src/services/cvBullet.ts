@@ -6,6 +6,7 @@ const MAX_TARGET_LENGTH = 80;
 const MAX_BULLET_WORDS = 28;
 const MAX_SUGGESTIONS = 3;
 const MAX_SUGGESTION_LENGTH = 120;
+// eslint-disable-next-line no-control-regex -- control characters are exactly what this check rejects
 const CONTROL_CHARACTER_PATTERN = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/u;
 const FIRST_PERSON_PATTERN = /\b(?:I|[Mm]e|[Mm]y|[Mm]ine|[Ww]e|[Uu]s|[Oo]ur|[Oo]urs)\b/u;
 
